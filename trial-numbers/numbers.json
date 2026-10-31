@@ -3,7 +3,7 @@
   "language": {
     "version": "0.0.31",
     "date": "2026-10-31",
-    "decisions": 214,
+    "decisions": 215,
     "stdModules": [
       "bytes",
       "crypto",

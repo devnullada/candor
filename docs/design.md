@@ -6020,6 +6020,23 @@ response (Go's httptrace; hey's report shows 0 for three stages), a per-request 
 already reads HTTP_PROXY), an HTTP/2 switch (h2 is negotiated over TLS already). Tests:
 test/http-client-options.test.ts (a real 127.0.0.1 server echoing what arrived; the fake).
 
+### Public release and the one-page site (cards #1db3572b, #c237feac, #69e54b5d)
+
+Pal's calls (2026-10-31): Candor is released as it is. The repo went public from one commit
+(devnullada/candor; the history stays in a private archive), 0.0.31 is on GitHub Releases, and
+candorlanguage.org is one page. The README and the site just say it is released: nothing about
+progress or plans.
+
+- The site is one static Astro page in `site/`: what Candor is, a service and its test, install,
+  the trial figures read from trial-numbers/numbers.json with every catch, and links to the docs
+  on GitHub. Highlighting borrows Shiki's Rust grammar until a Candor grammar exists.
+- For agents: `/llms.txt` and the guides and reference as plain Markdown beside the page;
+  robots.txt allows every crawler.
+- `bun run deploy` in site/ builds, packs and ships over ssh; Release.sh swaps a `current`
+  symlink and keeps five releases. Tests: test/site.test.ts runs the page's example.
+- CLAUDE.md is a one-line `@AGENTS.md` import, not a symlink: Windows clones can't make links.
+- install.ps1 renames an installed candor.exe aside before replacing it (it failed over one).
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,
