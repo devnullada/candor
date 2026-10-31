@@ -1,0 +1,2460 @@
+{
+  "about": "Figures for promotion: candorlanguage.org reads this file, and the README's Numbers section once it has one. `language` and each trial's `results` are filled in by `bun run numbers`; the rest is written by hand. Every claim carries its catches, so nothing says more than was measured.",
+  "language": {
+    "version": "0.0.31",
+    "date": "2026-10-31",
+    "decisions": 214,
+    "stdModules": [
+      "bytes",
+      "crypto",
+      "exec",
+      "flags",
+      "fs",
+      "hash",
+      "html",
+      "http",
+      "imap",
+      "json",
+      "mime",
+      "net",
+      "regex",
+      "smtp",
+      "sql",
+      "time",
+      "url",
+      "xml"
+    ],
+    "tests": 899,
+    "compilerLines": 18837
+  },
+  "trials": [
+    {
+      "id": "same-spec",
+      "title": "Same spec, Candor and Go",
+      "date": "2026-10-31",
+      "candor": "0.0.30",
+      "agent": "Claude Code",
+      "model": "sonnet",
+      "how": "One headless run per app and language from the same spec, no questions asked; hidden acceptance tests check the build. The model learns Candor from its docs, in the run.",
+      "runs": [
+        "bookings/candor/20261031-133632",
+        "bookings/go/20261029-085644",
+        "gateway/candor/20261031-133637",
+        "gateway/go/20261029-085840",
+        "jobs/candor/20261031-133642",
+        "jobs/go/20261029-090050",
+        "logs/candor/20261031-134100",
+        "logs/go/20261029-090219",
+        "pricing/candor/20261031-134105",
+        "pricing/go/20261029-090415",
+        "blobs/candor/20261031-134111",
+        "blobs/go/20261029-090534"
+      ],
+      "results": [
+        {
+          "app": "bookings",
+          "lang": "candor",
+          "passed": 12,
+          "failed": 0,
+          "lines": 165,
+          "compilerRuns": 2,
+          "minutes": 0.7,
+          "context": 17464,
+          "tokens": 101000,
+          "dollars": 0.1170998
+        },
+        {
+          "app": "bookings",
+          "lang": "go",
+          "passed": 12,
+          "failed": 0,
+          "lines": 383,
+          "compilerRuns": 4,
+          "minutes": 1.6,
+          "context": 9131,
+          "tokens": 123823,
+          "dollars": 0.2002992
+        },
+        {
+          "app": "gateway",
+          "lang": "candor",
+          "passed": 11,
+          "failed": 0,
+          "lines": 229,
+          "compilerRuns": 5,
+          "minutes": 3.6,
+          "context": 22309,
+          "tokens": 276135,
+          "dollars": 0.242803
+        },
+        {
+          "app": "gateway",
+          "lang": "go",
+          "passed": 11,
+          "failed": 0,
+          "lines": 307,
+          "compilerRuns": 4,
+          "minutes": 0.9,
+          "context": 9447,
+          "tokens": 65936,
+          "dollars": 0.1042476
+        },
+        {
+          "app": "jobs",
+          "lang": "candor",
+          "passed": 18,
+          "failed": 0,
+          "lines": 361,
+          "compilerRuns": 6,
+          "minutes": 2.1,
+          "context": 23355,
+          "tokens": 378978,
+          "dollars": 0.30572869999999996
+        },
+        {
+          "app": "jobs",
+          "lang": "go",
+          "passed": 18,
+          "failed": 0,
+          "lines": 369,
+          "compilerRuns": 4,
+          "minutes": 1.2,
+          "context": 9796,
+          "tokens": 81699,
+          "dollars": 0.18314199999999997
+        },
+        {
+          "app": "logs",
+          "lang": "candor",
+          "passed": 12,
+          "failed": 0,
+          "lines": 311,
+          "compilerRuns": 8,
+          "minutes": 1.7,
+          "context": 19083,
+          "tokens": 418947,
+          "dollars": 0.2802365
+        },
+        {
+          "app": "logs",
+          "lang": "go",
+          "passed": 12,
+          "failed": 0,
+          "lines": 345,
+          "compilerRuns": 4,
+          "minutes": 1.1,
+          "context": 9791,
+          "tokens": 79021,
+          "dollars": 0.17329309999999998
+        },
+        {
+          "app": "pricing",
+          "lang": "candor",
+          "passed": 12,
+          "failed": 0,
+          "lines": 319,
+          "compilerRuns": 3,
+          "minutes": 1.1,
+          "context": 18887,
+          "tokens": 190433,
+          "dollars": 0.17211710000000002
+        },
+        {
+          "app": "pricing",
+          "lang": "go",
+          "passed": 12,
+          "failed": 0,
+          "lines": 288,
+          "compilerRuns": 2,
+          "minutes": 0.8,
+          "context": 10293,
+          "tokens": 52406,
+          "dollars": 0.0903448
+        },
+        {
+          "app": "blobs",
+          "lang": "candor",
+          "passed": 11,
+          "failed": 0,
+          "lines": 330,
+          "compilerRuns": 6,
+          "minutes": 1.7,
+          "context": 23703,
+          "tokens": 453662,
+          "dollars": 0.2961481
+        },
+        {
+          "app": "blobs",
+          "lang": "go",
+          "passed": 11,
+          "failed": 0,
+          "lines": 414,
+          "compilerRuns": 5,
+          "minutes": 1.5,
+          "context": 9534,
+          "tokens": 130951,
+          "dollars": 0.2156316
+        }
+      ],
+      "catches": [
+        "Candor pays a reading cost Go doesn't: the model knows Go, and learns Candor from its docs in the run. Before writing code, Candor runs read the guide (docs/agent.md and its service part, about 14 thousand characters; the two that need concurrency read agent-more.md too), the heads of the std modules they use and sometimes an example; Go runs read the spec. That is most of the gap in context and in tokens. A whole service in agent-more.md (2026-10-30) cut the median context from 27k to 24k and the Candor cost from $1.95 to $1.47; on 0.0.30 (2026-10-31) it was 23k and $1.40. The http and json signatures and a shutdown pattern beside that service (2026-10-31) took most of the http and start.md lookups away but made the guide longer by about as much: 22k and $1.47. Moving the service into a part of its own (2026-10-31), so runs writing a service skip concurrency, tests and the std map, gave 20.5k and $1.41: 5 of 6 apps read less, by up to 5k; one run each, so about the noise. The Candor runs here are from 2026-10-31, Go's from 2026-10-29.",
+        "Candor runs wrote fewer lines on four apps of six, tests included, and ran the compiler as often or more: 3 to 8 times, Go 2 to 5.",
+        "One run per app and language: a small sample. Minutes are wall time on a machine shared with other work.",
+        "The 2026-10-26 runs on Kimi Code (Candor 0.0.1) stay in trials/runs, unlisted."
+      ],
+      "tests": {
+        "blobs": 11,
+        "bookings": 12,
+        "gateway": 11,
+        "jobs": 18,
+        "logs": 12,
+        "pricing": 12
+      }
+    }
+  ],
+  "compare": {
+    "id": "agents",
+    "title": "Other agents on the change trial",
+    "app": "supercronic",
+    "candor": "0.0.29",
+    "how": "Its four change requests, Go and Candor, one headless run each per agent and model (sonnet: the change trial's three from before the shorter guide, the docs the other agents had), scored as in the change trial.",
+    "catches": [
+      "Every agent passed every request in both languages, and every agent had taken in more context by its first Candor edit than by its first Go one: sonnet 1.4 times, Opus 1.7, Gemini 1.6. The gap is the language's (or its docs'), not one model's.",
+      "Gemini through Antigravity reads about three times what Claude Code does before its first edit, in both languages; its own setup is about the same size (8k), so that is reading.",
+      "Tokens in all are Candor's widest gap for Opus and Gemini (about 3 times Go's), mostly cached reads over longer runs: more turns and compiler runs in Candor. Sonnet's runs stayed short in both.",
+      "One run per request and language for Opus and Gemini: a single miss would move a pass rate by a quarter. Antigravity reports no cost; Opus cost $3.07 for 8 runs, sonnet $2.25 for 24.",
+      "Antigravity runs headless with an allowlist of its file and shell tools (any path: its rules take an exact path or `*`) and its sandbox. One Gemini run was dropped and run again: the sandbox failed to start a process, and the agent stopped."
+    ],
+    "results": {
+      "date": "2026-10-29",
+      "requests": {
+        "env-bug": "bug",
+        "exit-code": "change",
+        "job-names": "feature",
+        "options-struct": "refactor"
+      },
+      "agents": [
+        {
+          "agent": "claude",
+          "name": "Claude Code",
+          "model": "sonnet",
+          "since": "2026-10-28T23:50",
+          "until": "2026-10-29T01:40",
+          "note": "the published change trial (#cda9a398): 3 runs each",
+          "byLang": {
+            "candor": {
+              "runs": 12,
+              "hiddenTests": 5,
+              "dollars": 1.3,
+              "contextSpread": [
+                11134,
+                21781
+              ],
+              "readingSpread": [
+                19585,
+                56583
+              ],
+              "tokensSpread": [
+                70554,
+                237818
+              ],
+              "passedAll": 12,
+              "broke": 0,
+              "refactors": 3,
+              "shapePassed": 3,
+              "hiddenPassed": 4.5,
+              "contextTokens": 17603,
+              "readingTokens": 34982.5,
+              "readingTurns": 3,
+              "tokens": 147382,
+              "turns": 8,
+              "compilerRuns": 5,
+              "linesChanged": 21,
+              "minutes": 1.5529083333333333
+            },
+            "go": {
+              "runs": 12,
+              "hiddenTests": 5,
+              "dollars": 0.95,
+              "contextSpread": [
+                10799,
+                13860
+              ],
+              "readingSpread": [
+                29162,
+                40596
+              ],
+              "tokensSpread": [
+                71126,
+                185766
+              ],
+              "passedAll": 12,
+              "broke": 0,
+              "refactors": 3,
+              "shapePassed": 3,
+              "hiddenPassed": 4.5,
+              "contextTokens": 12795,
+              "readingTokens": 31491,
+              "readingTurns": 3,
+              "tokens": 131028.5,
+              "turns": 10.5,
+              "compilerRuns": 6.5,
+              "linesChanged": 21,
+              "minutes": 1.6378
+            }
+          },
+          "byRequest": {
+            "env-bug/candor": {
+              "runs": 3,
+              "hiddenTests": 4,
+              "dollars": 0.16,
+              "contextSpread": [
+                11134,
+                12458
+              ],
+              "readingSpread": [
+                19678,
+                31075
+              ],
+              "tokensSpread": [
+                70554,
+                85245
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 12384,
+              "readingTokens": 31071,
+              "readingTurns": 3,
+              "tokens": 71300,
+              "turns": 6,
+              "compilerRuns": 4,
+              "linesChanged": 2,
+              "minutes": 1.9738666666666667
+            },
+            "env-bug/go": {
+              "runs": 3,
+              "hiddenTests": 4,
+              "dollars": 0.24,
+              "contextSpread": [
+                10799,
+                13058
+              ],
+              "readingSpread": [
+                29727,
+                38926
+              ],
+              "tokensSpread": [
+                76222,
+                185766
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 11587,
+              "readingTokens": 38758,
+              "readingTurns": 4,
+              "tokens": 136475,
+              "turns": 12,
+              "compilerRuns": 6,
+              "linesChanged": 2,
+              "minutes": 12.423383333333334
+            },
+            "exit-code/candor": {
+              "runs": 3,
+              "hiddenTests": 5,
+              "dollars": 0.33,
+              "contextSpread": [
+                19139,
+                19896
+              ],
+              "readingSpread": [
+                36651,
+                56583
+              ],
+              "tokensSpread": [
+                142661,
+                194330
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 19608,
+              "readingTokens": 53930,
+              "readingTurns": 4,
+              "tokens": 143077,
+              "turns": 8,
+              "compilerRuns": 4,
+              "linesChanged": 29,
+              "minutes": 1.3693666666666666
+            },
+            "exit-code/go": {
+              "runs": 3,
+              "hiddenTests": 5,
+              "dollars": 0.22,
+              "contextSpread": [
+                11728,
+                12469
+              ],
+              "readingSpread": [
+                40146,
+                40596
+              ],
+              "tokensSpread": [
+                113126,
+                170694
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 12352,
+              "readingTokens": 40245,
+              "readingTurns": 4,
+              "tokens": 125582,
+              "turns": 10,
+              "compilerRuns": 7,
+              "linesChanged": 21,
+              "minutes": 1.6592833333333334
+            },
+            "job-names/candor": {
+              "runs": 3,
+              "hiddenTests": 5,
+              "dollars": 0.4,
+              "contextSpread": [
+                15933,
+                16176
+              ],
+              "readingSpread": [
+                34800,
+                35001
+              ],
+              "tokensSpread": [
+                138289,
+                237818
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 15991,
+              "readingTokens": 34964,
+              "readingTurns": 3,
+              "tokens": 151687,
+              "turns": 9,
+              "compilerRuns": 7,
+              "linesChanged": 17,
+              "minutes": 1.5566166666666668
+            },
+            "job-names/go": {
+              "runs": 3,
+              "hiddenTests": 5,
+              "dollars": 0.31,
+              "contextSpread": [
+                12872,
+                13535
+              ],
+              "readingSpread": [
+                30839,
+                30845
+              ],
+              "tokensSpread": [
+                160452,
+                164758
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 12936,
+              "readingTokens": 30845,
+              "readingTurns": 3,
+              "tokens": 163658,
+              "turns": 12,
+              "compilerRuns": 11,
+              "linesChanged": 21,
+              "minutes": 1.7041
+            },
+            "options-struct/candor": {
+              "runs": 3,
+              "hiddenTests": 4,
+              "dollars": 0.42,
+              "contextSpread": [
+                19030,
+                21781
+              ],
+              "readingSpread": [
+                19585,
+                49904
+              ],
+              "tokensSpread": [
+                170097,
+                235095
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 3,
+              "shapePassed": 3,
+              "hiddenPassed": 4,
+              "contextTokens": 20913,
+              "readingTokens": 40460,
+              "readingTurns": 3,
+              "tokens": 198069,
+              "turns": 9,
+              "compilerRuns": 7,
+              "linesChanged": 70,
+              "minutes": 1.6776666666666666
+            },
+            "options-struct/go": {
+              "runs": 3,
+              "hiddenTests": 4,
+              "dollars": 0.18,
+              "contextSpread": [
+                12718,
+                13860
+              ],
+              "readingSpread": [
+                29162,
+                32137
+              ],
+              "tokensSpread": [
+                71126,
+                78214
+              ],
+              "passedAll": 3,
+              "broke": 0,
+              "refactors": 3,
+              "shapePassed": 3,
+              "hiddenPassed": 4,
+              "contextTokens": 12907,
+              "readingTokens": 29473,
+              "readingTurns": 3,
+              "tokens": 71813,
+              "turns": 6,
+              "compilerRuns": 6,
+              "linesChanged": 29,
+              "minutes": 1.3026833333333334
+            }
+          }
+        },
+        {
+          "agent": "claude",
+          "name": "Claude Code",
+          "model": "opus",
+          "since": "2026-10-29T11:00",
+          "byLang": {
+            "candor": {
+              "runs": 4,
+              "hiddenTests": 5,
+              "dollars": 2,
+              "contextSpread": [
+                20869,
+                30046
+              ],
+              "readingSpread": [
+                56583,
+                98086
+              ],
+              "tokensSpread": [
+                215072,
+                709831
+              ],
+              "passedAll": 4,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4.5,
+              "contextTokens": 25665,
+              "readingTokens": 70209.5,
+              "readingTurns": 4.5,
+              "tokens": 562563.5,
+              "turns": 20,
+              "compilerRuns": 6.5,
+              "linesChanged": 29.5,
+              "minutes": 3.2142
+            },
+            "go": {
+              "runs": 4,
+              "hiddenTests": 5,
+              "dollars": 1.07,
+              "contextSpread": [
+                12864,
+                19494
+              ],
+              "readingSpread": [
+                29180,
+                75794
+              ],
+              "tokensSpread": [
+                128100,
+                298946
+              ],
+              "passedAll": 4,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4.5,
+              "contextTokens": 15157,
+              "readingTokens": 41605.5,
+              "readingTurns": 4,
+              "tokens": 172848.5,
+              "turns": 13,
+              "compilerRuns": 5,
+              "linesChanged": 18,
+              "minutes": 1.8118500000000002
+            }
+          },
+          "byRequest": {
+            "env-bug/candor": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0.27,
+              "contextSpread": [
+                20869,
+                20869
+              ],
+              "readingSpread": [
+                75438,
+                75438
+              ],
+              "tokensSpread": [
+                215072,
+                215072
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 20869,
+              "readingTokens": 75438,
+              "readingTurns": 5,
+              "tokens": 215072,
+              "turns": 14,
+              "compilerRuns": 3,
+              "linesChanged": 2,
+              "minutes": 2.336516666666667
+            },
+            "env-bug/go": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0.22,
+              "contextSpread": [
+                12864,
+                12864
+              ],
+              "readingSpread": [
+                37459,
+                37459
+              ],
+              "tokensSpread": [
+                161864,
+                161864
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 12864,
+              "readingTokens": 37459,
+              "readingTurns": 4,
+              "tokens": 161864,
+              "turns": 16,
+              "compilerRuns": 8,
+              "linesChanged": 4,
+              "minutes": 1.7753
+            },
+            "exit-code/candor": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0.5,
+              "contextSpread": [
+                23330,
+                23330
+              ],
+              "readingSpread": [
+                56583,
+                56583
+              ],
+              "tokensSpread": [
+                529425,
+                529425
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 23330,
+              "readingTokens": 56583,
+              "readingTurns": 4,
+              "tokens": 529425,
+              "turns": 19,
+              "compilerRuns": 7,
+              "linesChanged": 30,
+              "minutes": 3.1704
+            },
+            "exit-code/go": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0.29,
+              "contextSpread": [
+                19494,
+                19494
+              ],
+              "readingSpread": [
+                45752,
+                45752
+              ],
+              "tokensSpread": [
+                183833,
+                183833
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 19494,
+              "readingTokens": 45752,
+              "readingTurns": 4,
+              "tokens": 183833,
+              "turns": 10,
+              "compilerRuns": 5,
+              "linesChanged": 16,
+              "minutes": 1.8484
+            },
+            "job-names/candor": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0.57,
+              "contextSpread": [
+                30046,
+                30046
+              ],
+              "readingSpread": [
+                98086,
+                98086
+              ],
+              "tokensSpread": [
+                595702,
+                595702
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 30046,
+              "readingTokens": 98086,
+              "readingTurns": 6,
+              "tokens": 595702,
+              "turns": 21,
+              "compilerRuns": 11,
+              "linesChanged": 29,
+              "minutes": 3.258
+            },
+            "job-names/go": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0.37,
+              "contextSpread": [
+                17440,
+                17440
+              ],
+              "readingSpread": [
+                75794,
+                75794
+              ],
+              "tokensSpread": [
+                298946,
+                298946
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 17440,
+              "readingTokens": 75794,
+              "readingTurns": 6,
+              "tokens": 298946,
+              "turns": 18,
+              "compilerRuns": 4,
+              "linesChanged": 20,
+              "minutes": 2.68355
+            },
+            "options-struct/candor": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0.67,
+              "contextSpread": [
+                28000,
+                28000
+              ],
+              "readingSpread": [
+                64981,
+                64981
+              ],
+              "tokensSpread": [
+                709831,
+                709831
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4,
+              "contextTokens": 28000,
+              "readingTokens": 64981,
+              "readingTurns": 4,
+              "tokens": 709831,
+              "turns": 37,
+              "compilerRuns": 6,
+              "linesChanged": 88,
+              "minutes": 12.62165
+            },
+            "options-struct/go": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0.19,
+              "contextSpread": [
+                12874,
+                12874
+              ],
+              "readingSpread": [
+                29180,
+                29180
+              ],
+              "tokensSpread": [
+                128100,
+                128100
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4,
+              "contextTokens": 12874,
+              "readingTokens": 29180,
+              "readingTurns": 3,
+              "tokens": 128100,
+              "turns": 9,
+              "compilerRuns": 5,
+              "linesChanged": 37,
+              "minutes": 1.6176333333333333
+            }
+          }
+        },
+        {
+          "agent": "agy",
+          "name": "Antigravity",
+          "model": "gemini-4-argon-medium",
+          "costs": false,
+          "byLang": {
+            "candor": {
+              "runs": 4,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                44009,
+                71711
+              ],
+              "readingSpread": [
+                144304,
+                605015
+              ],
+              "tokensSpread": [
+                527919,
+                3393951
+              ],
+              "passedAll": 4,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4.5,
+              "contextTokens": 65816.5,
+              "readingTokens": 291384.5,
+              "readingTurns": 8,
+              "tokens": 1917014.5,
+              "turns": 25.5,
+              "compilerRuns": 8.5,
+              "linesChanged": 37,
+              "minutes": 8.28075
+            },
+            "go": {
+              "runs": 4,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                37416,
+                64006
+              ],
+              "readingSpread": [
+                74053,
+                1303541
+              ],
+              "tokensSpread": [
+                570185,
+                3036227
+              ],
+              "passedAll": 4,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4.5,
+              "contextTokens": 42469,
+              "readingTokens": 123407,
+              "readingTurns": 6,
+              "tokens": 703913.5,
+              "turns": 16.5,
+              "compilerRuns": 7,
+              "linesChanged": 21,
+              "minutes": 5.003208333333333
+            }
+          },
+          "byRequest": {
+            "env-bug/candor": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0,
+              "contextSpread": [
+                44009,
+                44009
+              ],
+              "readingSpread": [
+                144304,
+                144304
+              ],
+              "tokensSpread": [
+                527919,
+                527919
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 44009,
+              "readingTokens": 144304,
+              "readingTurns": 6,
+              "tokens": 527919,
+              "turns": 14,
+              "compilerRuns": 4,
+              "linesChanged": 2,
+              "minutes": 3.4242
+            },
+            "env-bug/go": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0,
+              "contextSpread": [
+                37416,
+                37416
+              ],
+              "readingSpread": [
+                88222,
+                88222
+              ],
+              "tokensSpread": [
+                570185,
+                570185
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 4,
+              "contextTokens": 37416,
+              "readingTokens": 88222,
+              "readingTurns": 5,
+              "tokens": 570185,
+              "turns": 16,
+              "compilerRuns": 8,
+              "linesChanged": 2,
+              "minutes": 4.065916666666666
+            },
+            "exit-code/candor": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                65912,
+                65912
+              ],
+              "readingSpread": [
+                605015,
+                605015
+              ],
+              "tokensSpread": [
+                3393951,
+                3393951
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 65912,
+              "readingTokens": 605015,
+              "readingTurns": 13,
+              "tokens": 3393951,
+              "turns": 45,
+              "compilerRuns": 18,
+              "linesChanged": 30,
+              "minutes": 10.029366666666666
+            },
+            "exit-code/go": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                64006,
+                64006
+              ],
+              "readingSpread": [
+                1303541,
+                1303541
+              ],
+              "tokensSpread": [
+                3036227,
+                3036227
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 64006,
+              "readingTokens": 1303541,
+              "readingTurns": 30,
+              "tokens": 3036227,
+              "turns": 51,
+              "compilerRuns": 14,
+              "linesChanged": 17,
+              "minutes": 17.429283333333334
+            },
+            "job-names/candor": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                65721,
+                65721
+              ],
+              "readingSpread": [
+                209228,
+                209228
+              ],
+              "tokensSpread": [
+                1772093,
+                1772093
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 65721,
+              "readingTokens": 209228,
+              "readingTurns": 6,
+              "tokens": 1772093,
+              "turns": 24,
+              "compilerRuns": 10,
+              "linesChanged": 44,
+              "minutes": 8.11535
+            },
+            "job-names/go": {
+              "runs": 1,
+              "hiddenTests": 5,
+              "dollars": 0,
+              "contextSpread": [
+                47424,
+                47424
+              ],
+              "readingSpread": [
+                74053,
+                74053
+              ],
+              "tokensSpread": [
+                766336,
+                766336
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 0,
+              "shapePassed": 0,
+              "hiddenPassed": 5,
+              "contextTokens": 47424,
+              "readingTokens": 74053,
+              "readingTurns": 4,
+              "tokens": 766336,
+              "turns": 16,
+              "compilerRuns": 6,
+              "linesChanged": 25,
+              "minutes": 5.3333
+            },
+            "options-struct/candor": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0,
+              "contextSpread": [
+                71711,
+                71711
+              ],
+              "readingSpread": [
+                373541,
+                373541
+              ],
+              "tokensSpread": [
+                2061936,
+                2061936
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4,
+              "contextTokens": 71711,
+              "readingTokens": 373541,
+              "readingTurns": 10,
+              "tokens": 2061936,
+              "turns": 27,
+              "compilerRuns": 7,
+              "linesChanged": 76,
+              "minutes": 8.44615
+            },
+            "options-struct/go": {
+              "runs": 1,
+              "hiddenTests": 4,
+              "dollars": 0,
+              "contextSpread": [
+                37514,
+                37514
+              ],
+              "readingSpread": [
+                158592,
+                158592
+              ],
+              "tokensSpread": [
+                641491,
+                641491
+              ],
+              "passedAll": 1,
+              "broke": 0,
+              "refactors": 1,
+              "shapePassed": 1,
+              "hiddenPassed": 4,
+              "contextTokens": 37514,
+              "readingTokens": 158592,
+              "readingTurns": 7,
+              "tokens": 641491,
+              "turns": 17,
+              "compilerRuns": 5,
+              "linesChanged": 33,
+              "minutes": 4.673116666666667
+            }
+          }
+        }
+      ]
+    }
+  },
+  "change": {
+    "id": "change",
+    "title": "Changing a codebase, Go and Candor",
+    "agent": "Claude Code",
+    "model": "sonnet",
+    "candor": "0.0.30",
+    "how": "Three headless runs per request and language, no questions asked; hidden tests, the shared tests and, for a refactor, a shape check score the change.",
+    "apps": {
+      "ntfy": {
+        "source": "https://github.com/binwiederhier/ntfy",
+        "what": "pub/sub notification server: HTTP, SQLite, users and ACLs, rate limits"
+      },
+      "webhook": {
+        "source": "https://github.com/adnanh/webhook",
+        "what": "runs commands on HTTP hooks: trigger rules, payloads, signatures"
+      },
+      "supercronic": {
+        "source": "https://github.com/aptible/supercronic",
+        "what": "cron for containers: schedules, time zones, child processes"
+      }
+    },
+    "requests": {
+      "ntfy/acl-bug": {
+        "kind": "bug",
+        "what": "a specific grant overruled by a broader one"
+      },
+      "ntfy/expires": {
+        "kind": "feature",
+        "what": "per-message expiry (`X-Expires`)"
+      },
+      "ntfy/topic-limits": {
+        "kind": "feature",
+        "what": "topic limits"
+      },
+      "ntfy/user-limits": {
+        "kind": "change",
+        "what": "rate limits per user, not per IP"
+      },
+      "ntfy/priority-type": {
+        "kind": "refactor",
+        "what": "message priority gets a type of its own"
+      },
+      "webhook/max-concurrent": {
+        "kind": "feature",
+        "what": "a per-hook limit on running commands"
+      },
+      "webhook/whitelist-bug": {
+        "kind": "bug",
+        "what": "an address refused unless its range comes first"
+      },
+      "webhook/header-object": {
+        "kind": "change",
+        "what": "`response-headers` as an object"
+      },
+      "webhook/typed-match": {
+        "kind": "refactor",
+        "what": "a match rule's type decided when the file is read"
+      },
+      "supercronic/job-names": {
+        "kind": "feature",
+        "what": "name a job with a `# name:` comment"
+      },
+      "supercronic/env-bug": {
+        "kind": "bug",
+        "what": "an env value with `=` in it cut short"
+      },
+      "supercronic/exit-code": {
+        "kind": "change",
+        "what": "a failed job's exit code as a log field"
+      },
+      "supercronic/options-struct": {
+        "kind": "refactor",
+        "what": "one options value instead of loose flags"
+      }
+    },
+    "catches": [
+      "Minutes are measured on a machine shared with other heavy work; read them as rough.",
+      "Go's runs are from 2026-10-28 night; Candor's were run again on 2026-10-31 on Candor 0.0.30 (#b62264d5), with tests in their own files and the two-part guide. Go doesn't read Candor's docs. Candor's median context at the first edit stayed at 17k (20k on 0.0.29's first runs), Go's is 14k; its tokens in all fell from 155k to 133k, under Go's 164k.",
+      "The Go codebases are idiomatic code by their authors; the Candor ones are ports written by a model, which may suit a model reading them.",
+      "Three runs per request and language is still a small sample; the spread is shown, not hidden.",
+      "Pass rates hardly separate the languages: 36 of 39 Go runs and all 39 Candor runs passed (37 of 39 on 0.0.29). Context is where they differ: Candor's first edit came later in reading on 7 requests of 13 (more than a tenth later), about as early on 5, earlier on 1.",
+      "topic-limits was once the widest gap (35k against 27k), and it was the codebase: the Candor port had left out the topic registry Go's ntfy has, so its runs built one first. With the registry added to the port and topic-limits rerun, it is even. Every Candor run also reads agent.md, about 2k tokens. The widest gaps left (max-concurrent, exit-code, options-struct) are equal work where Candor's way takes more: shared state as a Mutex field of the server, a declared error type in place of Go's wrapped errors, and a bigger test suite in the port. Summing every call's input, as an earlier figure here did, counted early reads again on every call; the dollar gap is smaller still, since cached reads are billed at a tenth."
+    ],
+    "results": {
+      "candor": "0.0.30",
+      "date": "2026-10-31",
+      "since": "2026-10-28T23:50",
+      "apps": {
+        "ntfy": {
+          "goLines": 8979,
+          "candorLines": 3017,
+          "sharedTests": 49,
+          "requests": {
+            "acl-bug": "bug",
+            "expires": "feature",
+            "priority-type": "refactor",
+            "topic-limits": "feature",
+            "user-limits": "change"
+          }
+        },
+        "supercronic": {
+          "goLines": 1526,
+          "candorLines": 1575,
+          "sharedTests": 30,
+          "requests": {
+            "env-bug": "bug",
+            "exit-code": "change",
+            "job-names": "feature",
+            "options-struct": "refactor"
+          }
+        },
+        "webhook": {
+          "goLines": 1482,
+          "candorLines": 2244,
+          "sharedTests": 30,
+          "requests": {
+            "header-object": "change",
+            "max-concurrent": "feature",
+            "typed-match": "refactor",
+            "whitelist-bug": "bug"
+          }
+        }
+      },
+      "byRequest": {
+        "ntfy/acl-bug/candor": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.2,
+          "contextSpread": [
+            13141,
+            13839
+          ],
+          "readingSpread": [
+            32051,
+            32135
+          ],
+          "tokensSpread": [
+            76377,
+            106680
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 13425,
+          "readingTokens": 32131,
+          "readingTurns": 3,
+          "tokens": 93134,
+          "turns": 7,
+          "compilerRuns": 2,
+          "linesChanged": 4,
+          "minutes": 0.8345166666666667
+        },
+        "ntfy/acl-bug/go": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.32,
+          "contextSpread": [
+            11769,
+            22267
+          ],
+          "readingSpread": [
+            29245,
+            94182
+          ],
+          "tokensSpread": [
+            129515,
+            219895
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 13971,
+          "readingTokens": 41007,
+          "readingTurns": 4,
+          "tokens": 140866,
+          "turns": 10,
+          "compilerRuns": 6,
+          "linesChanged": 2,
+          "minutes": 1.4053666666666667
+        },
+        "ntfy/expires/candor": {
+          "runs": 3,
+          "hiddenTests": 6,
+          "dollars": 0.32,
+          "contextSpread": [
+            16957,
+            17771
+          ],
+          "readingSpread": [
+            33680,
+            33714
+          ],
+          "tokensSpread": [
+            135107,
+            171434
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 16973,
+          "readingTokens": 33683,
+          "readingTurns": 3,
+          "tokens": 151963,
+          "turns": 9,
+          "compilerRuns": 3,
+          "linesChanged": 43,
+          "minutes": 0.9678333333333333
+        },
+        "ntfy/expires/go": {
+          "runs": 3,
+          "hiddenTests": 6,
+          "dollars": 0.39,
+          "contextSpread": [
+            15602,
+            18353
+          ],
+          "readingSpread": [
+            30348,
+            47165
+          ],
+          "tokensSpread": [
+            130835,
+            246195
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 16560,
+          "readingTokens": 30939,
+          "readingTurns": 3,
+          "tokens": 232542,
+          "turns": 14,
+          "compilerRuns": 10,
+          "linesChanged": 28,
+          "minutes": 1.9903
+        },
+        "ntfy/priority-type/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.32,
+          "contextSpread": [
+            18236,
+            19024
+          ],
+          "readingSpread": [
+            63692,
+            65095
+          ],
+          "tokensSpread": [
+            125176,
+            151241
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 3,
+          "hiddenPassed": 5,
+          "contextTokens": 18364,
+          "readingTokens": 64268,
+          "readingTurns": 5,
+          "tokens": 146080,
+          "turns": 9,
+          "compilerRuns": 4,
+          "linesChanged": 83,
+          "minutes": 1.17695
+        },
+        "ntfy/priority-type/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.48,
+          "contextSpread": [
+            18850,
+            19947
+          ],
+          "readingSpread": [
+            33884,
+            66222
+          ],
+          "tokensSpread": [
+            252329,
+            295771
+          ],
+          "passedAll": 2,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 2,
+          "hiddenPassed": 5,
+          "contextTokens": 19370,
+          "readingTokens": 52262,
+          "readingTurns": 4,
+          "tokens": 252930,
+          "turns": 13,
+          "compilerRuns": 11,
+          "linesChanged": 111,
+          "minutes": 3.52765
+        },
+        "ntfy/topic-limits/candor": {
+          "runs": 3,
+          "hiddenTests": 6,
+          "dollars": 0.58,
+          "contextSpread": [
+            24690,
+            29524
+          ],
+          "readingSpread": [
+            79496,
+            141575
+          ],
+          "tokensSpread": [
+            221062,
+            411889
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 27324,
+          "readingTokens": 85088,
+          "readingTurns": 5,
+          "tokens": 339765,
+          "turns": 13,
+          "compilerRuns": 11,
+          "linesChanged": 66,
+          "minutes": 1.6099
+        },
+        "ntfy/topic-limits/go": {
+          "runs": 3,
+          "hiddenTests": 6,
+          "dollars": 0.64,
+          "contextSpread": [
+            24311,
+            28385
+          ],
+          "readingSpread": [
+            72785,
+            101692
+          ],
+          "tokensSpread": [
+            270543,
+            411139
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 26855,
+          "readingTokens": 74941,
+          "readingTurns": 5,
+          "tokens": 315765,
+          "turns": 13,
+          "compilerRuns": 11,
+          "linesChanged": 70,
+          "minutes": 3.196266666666667
+        },
+        "ntfy/user-limits/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.32,
+          "contextSpread": [
+            21281,
+            21789
+          ],
+          "readingSpread": [
+            56603,
+            77059
+          ],
+          "tokensSpread": [
+            125489,
+            167151
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 21298,
+          "readingTokens": 57989,
+          "readingTurns": 4,
+          "tokens": 151180,
+          "turns": 8,
+          "compilerRuns": 4,
+          "linesChanged": 31,
+          "minutes": 0.97785
+        },
+        "ntfy/user-limits/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.61,
+          "contextSpread": [
+            18690,
+            28719
+          ],
+          "readingSpread": [
+            61515,
+            84616
+          ],
+          "tokensSpread": [
+            317181,
+            400216
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 24191,
+          "readingTokens": 72419,
+          "readingTurns": 5,
+          "tokens": 356802,
+          "turns": 16,
+          "compilerRuns": 11,
+          "linesChanged": 38,
+          "minutes": 3.6334333333333335
+        },
+        "supercronic/env-bug/candor": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.15,
+          "contextSpread": [
+            12092,
+            13168
+          ],
+          "readingSpread": [
+            19979,
+            32285
+          ],
+          "tokensSpread": [
+            60423,
+            84672
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 12261,
+          "readingTokens": 31715,
+          "readingTurns": 3,
+          "tokens": 72888,
+          "turns": 6,
+          "compilerRuns": 2,
+          "linesChanged": 2,
+          "minutes": 1.12985
+        },
+        "supercronic/env-bug/go": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.24,
+          "contextSpread": [
+            10799,
+            13058
+          ],
+          "readingSpread": [
+            29727,
+            38926
+          ],
+          "tokensSpread": [
+            76222,
+            185766
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 11587,
+          "readingTokens": 38758,
+          "readingTurns": 4,
+          "tokens": 136475,
+          "turns": 12,
+          "compilerRuns": 6,
+          "linesChanged": 2,
+          "minutes": 12.423383333333334
+        },
+        "supercronic/exit-code/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.28,
+          "contextSpread": [
+            15128,
+            16929
+          ],
+          "readingSpread": [
+            33330,
+            51818
+          ],
+          "tokensSpread": [
+            107439,
+            178222
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 16436,
+          "readingTokens": 34070,
+          "readingTurns": 3,
+          "tokens": 129641,
+          "turns": 8,
+          "compilerRuns": 5,
+          "linesChanged": 31,
+          "minutes": 1.4312833333333332
+        },
+        "supercronic/exit-code/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.22,
+          "contextSpread": [
+            11728,
+            12469
+          ],
+          "readingSpread": [
+            40146,
+            40596
+          ],
+          "tokensSpread": [
+            113126,
+            170694
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 12352,
+          "readingTokens": 40245,
+          "readingTurns": 4,
+          "tokens": 125582,
+          "turns": 10,
+          "compilerRuns": 7,
+          "linesChanged": 21,
+          "minutes": 1.6592833333333334
+        },
+        "supercronic/job-names/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.25,
+          "contextSpread": [
+            14122,
+            14687
+          ],
+          "readingSpread": [
+            32974,
+            34307
+          ],
+          "tokensSpread": [
+            97891,
+            119040
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 14601,
+          "readingTokens": 34208,
+          "readingTurns": 3,
+          "tokens": 118882,
+          "turns": 8,
+          "compilerRuns": 4,
+          "linesChanged": 22,
+          "minutes": 1.3540666666666668
+        },
+        "supercronic/job-names/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.31,
+          "contextSpread": [
+            12872,
+            13535
+          ],
+          "readingSpread": [
+            30839,
+            30845
+          ],
+          "tokensSpread": [
+            160452,
+            164758
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 12936,
+          "readingTokens": 30845,
+          "readingTurns": 3,
+          "tokens": 163658,
+          "turns": 12,
+          "compilerRuns": 11,
+          "linesChanged": 21,
+          "minutes": 1.7041
+        },
+        "supercronic/options-struct/candor": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.33,
+          "contextSpread": [
+            14334,
+            18243
+          ],
+          "readingSpread": [
+            19998,
+            35679
+          ],
+          "tokensSpread": [
+            98044,
+            212714
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 3,
+          "hiddenPassed": 4,
+          "contextTokens": 17024,
+          "readingTokens": 34415,
+          "readingTurns": 3,
+          "tokens": 133405,
+          "turns": 8,
+          "compilerRuns": 5,
+          "linesChanged": 67,
+          "minutes": 1.6015
+        },
+        "supercronic/options-struct/go": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.18,
+          "contextSpread": [
+            12718,
+            13860
+          ],
+          "readingSpread": [
+            29162,
+            32137
+          ],
+          "tokensSpread": [
+            71126,
+            78214
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 3,
+          "hiddenPassed": 4,
+          "contextTokens": 12907,
+          "readingTokens": 29473,
+          "readingTurns": 3,
+          "tokens": 71813,
+          "turns": 6,
+          "compilerRuns": 6,
+          "linesChanged": 29,
+          "minutes": 1.3026833333333334
+        },
+        "webhook/header-object/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.26,
+          "contextSpread": [
+            14695,
+            14747
+          ],
+          "readingSpread": [
+            32203,
+            32547
+          ],
+          "tokensSpread": [
+            121179,
+            136801
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 14747,
+          "readingTokens": 32547,
+          "readingTurns": 3,
+          "tokens": 132971,
+          "turns": 9,
+          "compilerRuns": 4,
+          "linesChanged": 32,
+          "minutes": 0.7971166666666667
+        },
+        "webhook/header-object/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.23,
+          "contextSpread": [
+            11736,
+            13311
+          ],
+          "readingSpread": [
+            28989,
+            41391
+          ],
+          "tokensSpread": [
+            85820,
+            103417
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 12915,
+          "readingTokens": 41204,
+          "readingTurns": 4,
+          "tokens": 100930,
+          "turns": 8,
+          "compilerRuns": 7,
+          "linesChanged": 34,
+          "minutes": 0.9958833333333333
+        },
+        "webhook/max-concurrent/candor": {
+          "runs": 3,
+          "hiddenTests": 8,
+          "dollars": 0.44,
+          "contextSpread": [
+            19970,
+            21888
+          ],
+          "readingSpread": [
+            55440,
+            55951
+          ],
+          "tokensSpread": [
+            232050,
+            256091
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 8,
+          "contextTokens": 21016,
+          "readingTokens": 55746,
+          "readingTurns": 4,
+          "tokens": 249799,
+          "turns": 12,
+          "compilerRuns": 6,
+          "linesChanged": 54,
+          "minutes": 1.1655
+        },
+        "webhook/max-concurrent/go": {
+          "runs": 3,
+          "hiddenTests": 8,
+          "dollars": 0.29,
+          "contextSpread": [
+            12749,
+            14543
+          ],
+          "readingSpread": [
+            29358,
+            30015
+          ],
+          "tokensSpread": [
+            74139,
+            217111
+          ],
+          "passedAll": 1,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 3,
+          "contextTokens": 14442,
+          "readingTokens": 29730,
+          "readingTurns": 3,
+          "tokens": 96404,
+          "turns": 8,
+          "compilerRuns": 7,
+          "linesChanged": 33,
+          "minutes": 1.1555666666666666
+        },
+        "webhook/typed-match/candor": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.47,
+          "contextSpread": [
+            18508,
+            23692
+          ],
+          "readingSpread": [
+            37099,
+            79397
+          ],
+          "tokensSpread": [
+            189417,
+            243899
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 3,
+          "hiddenPassed": 4,
+          "contextTokens": 19899,
+          "readingTokens": 52298,
+          "readingTurns": 4,
+          "tokens": 213466,
+          "turns": 12,
+          "compilerRuns": 11,
+          "linesChanged": 111,
+          "minutes": 1.3382
+        },
+        "webhook/typed-match/go": {
+          "runs": 3,
+          "hiddenTests": 4,
+          "dollars": 0.51,
+          "contextSpread": [
+            16417,
+            17867
+          ],
+          "readingSpread": [
+            30492,
+            41481
+          ],
+          "tokensSpread": [
+            207422,
+            294834
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 3,
+          "shapePassed": 3,
+          "hiddenPassed": 4,
+          "contextTokens": 17148,
+          "readingTokens": 31191,
+          "readingTurns": 3,
+          "tokens": 241535,
+          "turns": 12,
+          "compilerRuns": 16,
+          "linesChanged": 198,
+          "minutes": 2.1384333333333334
+        },
+        "webhook/whitelist-bug/candor": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.18,
+          "contextSpread": [
+            14722,
+            15285
+          ],
+          "readingSpread": [
+            33641,
+            47789
+          ],
+          "tokensSpread": [
+            66393,
+            79317
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 14783,
+          "readingTokens": 46240,
+          "readingTurns": 4,
+          "tokens": 77643,
+          "turns": 6,
+          "compilerRuns": 2,
+          "linesChanged": 4,
+          "minutes": 0.5082166666666666
+        },
+        "webhook/whitelist-bug/go": {
+          "runs": 3,
+          "hiddenTests": 5,
+          "dollars": 0.13,
+          "contextSpread": [
+            11699,
+            11772
+          ],
+          "readingSpread": [
+            28846,
+            38714
+          ],
+          "tokensSpread": [
+            54147,
+            64057
+          ],
+          "passedAll": 3,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 11753,
+          "readingTokens": 28919,
+          "readingTurns": 3,
+          "tokens": 54176,
+          "turns": 6,
+          "compilerRuns": 2,
+          "linesChanged": 4,
+          "minutes": 0.6617333333333333
+        }
+      },
+      "byLang": {
+        "candor": {
+          "runs": 39,
+          "hiddenTests": 8,
+          "dollars": 4.11,
+          "contextSpread": [
+            12092,
+            29524
+          ],
+          "readingSpread": [
+            19979,
+            141575
+          ],
+          "tokensSpread": [
+            60423,
+            411889
+          ],
+          "passedAll": 39,
+          "broke": 0,
+          "refactors": 9,
+          "shapePassed": 9,
+          "hiddenPassed": 5,
+          "contextTokens": 16957,
+          "readingTokens": 34415,
+          "readingTurns": 3,
+          "tokens": 133405,
+          "turns": 8,
+          "compilerRuns": 4,
+          "linesChanged": 34,
+          "minutes": 1.1655
+        },
+        "go": {
+          "runs": 39,
+          "hiddenTests": 8,
+          "dollars": 4.56,
+          "contextSpread": [
+            10799,
+            28719
+          ],
+          "readingSpread": [
+            28846,
+            101692
+          ],
+          "tokensSpread": [
+            54147,
+            411139
+          ],
+          "passedAll": 36,
+          "broke": 0,
+          "refactors": 9,
+          "shapePassed": 8,
+          "hiddenPassed": 5,
+          "contextTokens": 13860,
+          "readingTokens": 38714,
+          "readingTurns": 4,
+          "tokens": 163658,
+          "turns": 12,
+          "compilerRuns": 8,
+          "linesChanged": 29,
+          "minutes": 1.7413833333333333
+        }
+      },
+      "byKind": {
+        "bug/candor": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 0.53,
+          "contextSpread": [
+            12092,
+            15285
+          ],
+          "readingSpread": [
+            19979,
+            47789
+          ],
+          "tokensSpread": [
+            60423,
+            106680
+          ],
+          "passedAll": 9,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 13425,
+          "readingTokens": 32135,
+          "readingTurns": 3,
+          "tokens": 77643,
+          "turns": 6,
+          "compilerRuns": 2,
+          "linesChanged": 4,
+          "minutes": 0.8345166666666667
+        },
+        "bug/go": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 0.7,
+          "contextSpread": [
+            10799,
+            22267
+          ],
+          "readingSpread": [
+            28846,
+            94182
+          ],
+          "tokensSpread": [
+            54147,
+            219895
+          ],
+          "passedAll": 9,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 4,
+          "contextTokens": 11769,
+          "readingTokens": 38714,
+          "readingTurns": 4,
+          "tokens": 129515,
+          "turns": 10,
+          "compilerRuns": 5,
+          "linesChanged": 2,
+          "minutes": 1.3625333333333334
+        },
+        "feature/candor": {
+          "runs": 12,
+          "hiddenTests": 8,
+          "dollars": 1.59,
+          "contextSpread": [
+            14122,
+            29524
+          ],
+          "readingSpread": [
+            32974,
+            141575
+          ],
+          "tokensSpread": [
+            97891,
+            411889
+          ],
+          "passedAll": 12,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 18870.5,
+          "readingTokens": 44873.5,
+          "readingTurns": 3.5,
+          "tokens": 196248,
+          "turns": 10,
+          "compilerRuns": 6,
+          "linesChanged": 48,
+          "minutes": 1.2613
+        },
+        "feature/go": {
+          "runs": 12,
+          "hiddenTests": 8,
+          "dollars": 1.63,
+          "contextSpread": [
+            12749,
+            28385
+          ],
+          "readingSpread": [
+            29358,
+            101692
+          ],
+          "tokensSpread": [
+            74139,
+            411139
+          ],
+          "passedAll": 10,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 6,
+          "contextTokens": 15072.5,
+          "readingTokens": 30845,
+          "readingTurns": 3,
+          "tokens": 190934.5,
+          "turns": 12,
+          "compilerRuns": 10,
+          "linesChanged": 30.5,
+          "minutes": 1.7416833333333335
+        },
+        "refactor/candor": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 1.12,
+          "contextSpread": [
+            14334,
+            23692
+          ],
+          "readingSpread": [
+            19998,
+            79397
+          ],
+          "tokensSpread": [
+            98044,
+            243899
+          ],
+          "passedAll": 9,
+          "broke": 0,
+          "refactors": 9,
+          "shapePassed": 9,
+          "hiddenPassed": 4,
+          "contextTokens": 18364,
+          "readingTokens": 52298,
+          "readingTurns": 4,
+          "tokens": 151241,
+          "turns": 9,
+          "compilerRuns": 5,
+          "linesChanged": 83,
+          "minutes": 1.3382
+        },
+        "refactor/go": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 1.17,
+          "contextSpread": [
+            12718,
+            19947
+          ],
+          "readingSpread": [
+            29162,
+            66222
+          ],
+          "tokensSpread": [
+            71126,
+            295771
+          ],
+          "passedAll": 8,
+          "broke": 0,
+          "refactors": 9,
+          "shapePassed": 8,
+          "hiddenPassed": 4,
+          "contextTokens": 17148,
+          "readingTokens": 32137,
+          "readingTurns": 3,
+          "tokens": 241535,
+          "turns": 12,
+          "compilerRuns": 10,
+          "linesChanged": 111,
+          "minutes": 2.1384333333333334
+        },
+        "change/candor": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 0.86,
+          "contextSpread": [
+            14695,
+            21789
+          ],
+          "readingSpread": [
+            32203,
+            77059
+          ],
+          "tokensSpread": [
+            107439,
+            178222
+          ],
+          "passedAll": 9,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 16436,
+          "readingTokens": 34070,
+          "readingTurns": 3,
+          "tokens": 132971,
+          "turns": 8,
+          "compilerRuns": 4,
+          "linesChanged": 31,
+          "minutes": 1.0590166666666667
+        },
+        "change/go": {
+          "runs": 9,
+          "hiddenTests": 5,
+          "dollars": 1.06,
+          "contextSpread": [
+            11728,
+            28719
+          ],
+          "readingSpread": [
+            28989,
+            84616
+          ],
+          "tokensSpread": [
+            85820,
+            400216
+          ],
+          "passedAll": 9,
+          "broke": 0,
+          "refactors": 0,
+          "shapePassed": 0,
+          "hiddenPassed": 5,
+          "contextTokens": 12915,
+          "readingTokens": 41204,
+          "readingTurns": 4,
+          "tokens": 125582,
+          "turns": 10,
+          "compilerRuns": 8,
+          "linesChanged": 34,
+          "minutes": 1.6592833333333334
+        }
+      }
+    }
+  },
+  "ports": [
+    {
+      "id": "webhook",
+      "source": "https://github.com/adnanh/webhook",
+      "what": "HTTP endpoints that run commands: hook rules, payload matching, HMAC signatures, timeouts.",
+      "agent": "Claude Code",
+      "model": "sonnet",
+      "how": "Ported from the Go source, headless, no questions asked; the original's tests ported with it.",
+      "passes": [
+        {
+          "candor": "0.0.10",
+          "date": "2026-10-27",
+          "minutes": 17,
+          "dollars": 3.62,
+          "tests": 41,
+          "note": "Worked around what Candor lacked: its own regex engine, HMAC-SHA1 by hand."
+        },
+        {
+          "candor": "0.0.19",
+          "date": "2026-10-27",
+          "minutes": 6,
+          "dollars": 6.23,
+          "tests": 67,
+          "note": "Workarounds dropped once Candor had regex and HMAC; served real requests, a timeout killed a slow command."
+        },
+        {
+          "candor": "0.0.20",
+          "date": "2026-10-27",
+          "minutes": 3,
+          "dollars": 6.97,
+          "tests": 71,
+          "note": "Payload numbers (`1.50`, `1e3`, `12345678901234567890`) reach the command exactly as sent, as in the original."
+        }
+      ],
+      "catches": [
+        "Trailing data after a JSON body is an error; Go ignores it.",
+        "Multipart, XML and some flags left out of scope.",
+        "Three Candor releases between the passes: the port drove the language as much as it tested it."
+      ]
+    },
+    {
+      "id": "yarr",
+      "source": "https://github.com/nkanaev/yarr",
+      "what": "An RSS reader: JSON API, SQLite with 15 migrations, background refresh, RSS, Atom, RDF and JSON Feed parsing, an HTML sanitizer.",
+      "agent": "Claude Code",
+      "model": "sonnet",
+      "how": "Ported from the Go source, headless, no questions asked; all 29 of the original's parser fixtures and 38 sanitizer cases ported with it.",
+      "passes": [
+        {
+          "candor": "0.0.24",
+          "date": "2026-10-27",
+          "minutes": 41,
+          "dollars": 10.43,
+          "tests": 169,
+          "lines": 8800,
+          "note": "Before Candor had XML. Found a page's feed, served its items, got a 304 on refresh."
+        },
+        {
+          "candor": "0.0.25",
+          "date": "2026-10-27",
+          "minutes": 7,
+          "dollars": 13.1,
+          "tests": 166,
+          "lines": 8200,
+          "note": "With std `xml`: its own XML reader and charset tables dropped; fixtures unchanged, same output."
+        }
+      ],
+      "catches": [
+        "It still has its own HTML tree builder and URL resolver.",
+        "Its search index differs from the original's: Candor has no SQL functions."
+      ]
+    }
+  ],
+  "ownApps": {
+    "count": 3,
+    "what": "of the author's own apps, rewritten in Candor and in daily use; one of them reads and sends mail over IMAP and SMTP."
+  }
+}

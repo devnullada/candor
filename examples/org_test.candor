@@ -1,0 +1,18 @@
+module org
+
+test "a guard narrows what follows" {
+  assert greet(none) == "nobody to greet"
+  assert greet(Person { name: "Di", boss: none, age: none }) == "hi Di"
+}
+
+test "fields of fields" {
+  let top = Person { name: "T", boss: none, age: none }
+  let mid = Person { name: "M", boss: top, age: none }
+  assert chain(Person { name: "L", boss: mid, age: none }) == "L -> M -> T"
+  assert chain(top) == "T"
+}
+
+test "unknown ages are skipped, not zero" {
+  assert oldest([Person { name: "X", boss: none, age: none }]) == "nobody"
+  assert oldest([Person { name: "X", boss: none, age: none }, Person { name: "Y", boss: none, age: 3 }]) == "Y, 3"
+}

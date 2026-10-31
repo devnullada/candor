@@ -1,0 +1,292 @@
+module pricing
+
+// The reference for trial app `pricing`: a cart priced by rules, and orders through states.
+
+import "http"
+import "json"
+
+struct Product {
+  sku: string
+  price: int
+  category: string
+}
+
+struct ItemIn {
+  sku: string
+  qty: int
+}
+impl Json for ItemIn
+
+struct Cart {
+  items: List<ItemIn>
+  tier: string?
+  coupon: string?
+}
+impl Json for Cart
+
+struct Line {
+  sku: string
+  qty: int
+  gross: int
+  discount: int
+  net: int
+  tax: int
+  total: int
+}
+impl Json for Line
+
+struct CouponView {
+  code: string
+  applied: bool
+}
+impl Json for CouponView
+
+struct Quote {
+  lines: List<Line>
+  subtotal: int
+  voucher: int
+  total: int
+  coupon: CouponView?
+}
+impl Json(nulls) for Quote
+
+struct Order {
+  id: int
+  state: string
+  total: int
+  history: List<string>
+}
+impl Json for Order
+
+struct Orders {
+  orders: List<Order>
+}
+impl Json for Orders
+
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+struct Book {
+  orders: Map<int, Order>
+  next: int
+}
+
+fn catalogue() -> List<Product> {
+  return [
+    Product { sku: "apple", price: 50, category: "fruit" },
+    Product { sku: "bread", price: 250, category: "bakery" },
+    Product { sku: "cheese", price: 700, category: "dairy" },
+    Product { sku: "milk", price: 120, category: "dairy" },
+    Product { sku: "wine", price: 1500, category: "alcohol" },
+  ]
+}
+
+// `pct` percent of `amount`, rounded half up.
+fn percent(amount: int, pct: int) -> int {
+  return (2 * amount * pct + 100) / 200
+}
+
+fn gross(p: Product, qty: int) -> int {
+  if p.sku == "apple" {
+    return (qty - qty / 3) * p.price
+  }
+  if p.sku == "bread" {
+    return qty / 2 * 400 + qty % 2 * p.price
+  }
+  return qty * p.price
+}
+
+fn tierPct(tier: string) -> int? {
+  if tier == "standard" {
+    return 0
+  } else if tier == "silver" {
+    return 5
+  } else if tier == "gold" {
+    return 10
+  }
+  return none
+}
+
+fn priceLine(p: Product, qty: int, tier: int, dairy20: bool) -> Line {
+  let g = gross(p, qty)
+  let off = if p.category == "alcohol" { 0 } else { percent(g, tier) }
+  let coupon = if dairy20 && p.category == "dairy" { percent(g - off, 20) } else { 0 }
+  let net = g - off - coupon
+  let tax = percent(net, if p.category == "alcohol" { 25 } else { 10 })
+  return Line { sku: p.sku, qty, gross: g, discount: off + coupon, net, tax, total: net + tax }
+}
+
+fn price(cart: Cart) -> Result<Quote, string> {
+  if cart.items.isEmpty() {
+    return Err("a cart needs items")
+  }
+  let tier = tierPct(cart.tier ?? "standard")
+  if tier == none {
+    return Err("no tier `${cart.tier ?? ""}`: standard, silver or gold")
+  }
+  let code = cart.coupon ?? ""
+  if cart.coupon != none && code != "DAIRY20" && code != "SAVE10" {
+    return Err("no coupon `${code}`")
+  }
+  let mut qty: Map<string, int> = [:]
+  for item in cart.items {
+    if !catalogue().map((p) => p.sku).contains(item.sku) {
+      return Err("no sku `${item.sku}`")
+    }
+    if item.qty < 1 || item.qty > 100 {
+      return Err("a qty is 1 to 100")
+    }
+    qty[item.sku] = (qty[item.sku] ?? 0) + item.qty
+    if (qty[item.sku] ?? 0) > 100 {
+      return Err("at most 100 of `${item.sku}`")
+    }
+  }
+  let mut lines: List<Line> = []
+  for p in catalogue() {
+    let n = qty[p.sku]
+    if n != none {
+      lines.push(priceLine(p, n, tier, code == "DAIRY20"))
+    }
+  }
+  let mut subtotal = 0
+  for l in lines {
+    subtotal += l.total
+  }
+  let voucher = if code == "SAVE10" && subtotal >= 5000 { 1000 } else { 0 }
+  let dairy = lines.filter((l) => l.sku == "cheese" || l.sku == "milk").length() > 0
+  let applied = if code == "SAVE10" { voucher > 0 } else { dairy }
+  let coupon = if cart.coupon == none { none } else { CouponView { code, applied } }
+  return Ok(Quote { lines, subtotal, voucher, total: subtotal - voucher, coupon })
+}
+
+fn next(state: string, action: string) -> string? {
+  return match (state, action) {
+    ("pending", "pay") => "paid",
+    ("pending", "cancel") => "cancelled",
+    ("paid", "ship") => "shipped",
+    ("paid", "refund") => "refunded",
+    ("shipped", "deliver") => "delivered",
+    ("delivered", "refund") => "refunded",
+    _ => none,
+  }
+}
+
+fn add(b: Book, total: int) -> (Book, Order) {
+  let o = Order { id: b.next, state: "pending", total, history: ["pending"] }
+  let mut orders = b.orders
+  orders[o.id] = o
+  return (Book { orders, next: b.next + 1 }, o)
+}
+
+// The order after `action`: 404 if there is none, 409 if the action isn't allowed.
+fn act(b: Book, id: int, action: string) -> (Book, Result<Order, (int, string)>) {
+  let o = b.orders[id]
+  if o == none {
+    return (b, Err((404, "no order ${id}")))
+  }
+  let to = next(o.state, action)
+  if to == none {
+    return (b, Err((409, "can't ${action} an order that is ${o.state}")))
+  }
+  let mut history = o.history
+  history.push(to)
+  let moved = Order { ...o, state: to, history }
+  let mut orders = b.orders
+  orders[id] = moved
+  return (Book { ...b, orders }, Ok(moved))
+}
+
+// The service.
+
+fn handle(req: http.Request, book: Mutex<Book>) -> http.Response {
+  return match route(req, book) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+fn route(req: http.Request, book: Mutex<Book>) -> Result<http.Response, http.Response> {
+  if http.route(req, "/quote") != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/quote takes POST"))
+    }
+    return Ok(http.jsonResponse(200, quoteOf(req.body)?))
+  }
+  if http.route(req, "/orders") != none {
+    if req.method == "GET" {
+      let all = book.get().orders.values().sortedBy((o) => o.id)
+      return Ok(http.jsonResponse(200, Orders { orders: all }))
+    }
+    if req.method != "POST" {
+      return Err(problem(405, "/orders takes GET and POST"))
+    }
+    let q = quoteOf(req.body)?
+    let o = book.updateWith((b) => add(b, q.total))
+    return Ok(http.jsonResponse(201, o))
+  }
+  let one = http.route(req, "/orders/{id}")
+  if one != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/orders/{id} takes GET"))
+    }
+    let id = idIn(one)?
+    let o = book.get().orders[id]
+    if o == none {
+      return Err(problem(404, "no order ${id}"))
+    }
+    return Ok(http.jsonResponse(200, o))
+  }
+  let acted = http.route(req, "/orders/{id}/{action}")
+  if acted != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/orders/{id}/{action} takes POST"))
+    }
+    let id = idIn(acted)?
+    let action = acted["action"] ?? ""
+    if !["pay", "ship", "deliver", "cancel", "refund"].contains(action) {
+      return Err(problem(404, "no action `${action}`"))
+    }
+    return match book.updateWith((b) => act(b, id, action)) {
+      Ok(o) => Ok(http.jsonResponse(200, o)),
+      Err((status, message)) => Err(problem(status, message)),
+    }
+  }
+  return Err(problem(404, "no route ${req.method} ${req.path}"))
+}
+
+fn quoteOf(body: string) -> Result<Quote, http.Response> {
+  let cart = match json.decode<Cart>(body) {
+    Ok(c) => c,
+    Err(e) => return Err(problem(400, "bad body: ${e}")),
+  }
+  return match price(cart) {
+    Ok(q) => Ok(q),
+    Err(message) => Err(problem(400, message)),
+  }
+}
+
+fn idIn(params: Map<string, string>) -> Result<int, http.Response> {
+  let given = params["id"] ?? ""
+  return match given.toInt() {
+    none => Err(problem(404, "no order `${given}`")),
+    n => Ok(n),
+  }
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+fn main() uses io, env, http, tasks {
+  let port = env.get("PORT") ?? "8080"
+  let served = tasks.scope((s) => {
+    let book = s.mutex(Book { orders: [:], next: 1 })
+    return http.serve("127.0.0.1:${port}", (req) => handle(req, book))
+  })
+  match served {
+    Ok() => {},
+    Err(message) => io.println("can't serve: ${message}"),
+  }
+}

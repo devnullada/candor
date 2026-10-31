@@ -1,0 +1,71 @@
+module store
+
+// The blobs and tags, in SQLite.
+
+import "json"
+import "sql"
+
+pub struct Blob {
+  pub id: string
+  pub size: int
+}
+impl Row for Blob
+impl Json for Blob
+
+pub struct Tag {
+  pub name: string
+  pub id: string
+}
+impl Row for Tag
+impl Json for Tag
+
+pub fn open(path: string) -> Result<void, sql.Error> uses sql {
+  sql.open(path)?
+  sql.exec("CREATE TABLE IF NOT EXISTS blobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, size INTEGER NOT NULL)")?
+  sql.exec("CREATE TABLE IF NOT EXISTS tags (name TEXT PRIMARY KEY, id TEXT NOT NULL)")?
+  return Ok()
+}
+
+// Whether it was new.
+pub fn put(id: string, body: string) -> Result<bool, sql.Error> uses sql {
+  return Ok(sql.exec("INSERT OR IGNORE INTO blobs (id, body, size) VALUES (${id}, ${body}, ${body.byteLength()})")? == 1)
+}
+
+pub fn text(id: string) -> Result<string?, sql.Error> uses sql {
+  return Ok(sql.query<string>("SELECT body FROM blobs WHERE id = ${id}")?.first())
+}
+
+pub fn blob(id: string) -> Result<Blob?, sql.Error> uses sql {
+  return Ok(sql.query<Blob>("SELECT id, size FROM blobs WHERE id = ${id}")?.first())
+}
+
+pub fn blobs() -> Result<List<Blob>, sql.Error> uses sql {
+  return sql.query<Blob>("SELECT id, size FROM blobs ORDER BY id")
+}
+
+pub fn remove(id: string) -> Result<void, sql.Error> uses sql {
+  sql.exec("DELETE FROM blobs WHERE id = ${id}")?
+  return Ok()
+}
+
+pub fn tagsOf(id: string) -> Result<List<string>, sql.Error> uses sql {
+  return sql.query<string>("SELECT name FROM tags WHERE id = ${id} ORDER BY name")
+}
+
+pub fn setTag(name: string, id: string) -> Result<void, sql.Error> uses sql {
+  sql.exec("INSERT INTO tags (name, id) VALUES (${name}, ${id}) ON CONFLICT(name) DO UPDATE SET id = excluded.id")?
+  return Ok()
+}
+
+pub fn tag(name: string) -> Result<Tag?, sql.Error> uses sql {
+  return Ok(sql.query<Tag>("SELECT name, id FROM tags WHERE name = ${name}")?.first())
+}
+
+// Whether there was one.
+pub fn untag(name: string) -> Result<bool, sql.Error> uses sql {
+  return Ok(sql.exec("DELETE FROM tags WHERE name = ${name}")? > 0)
+}
+
+pub fn tags() -> Result<List<Tag>, sql.Error> uses sql {
+  return sql.query<Tag>("SELECT name, id FROM tags ORDER BY name")
+}

@@ -1,0 +1,54 @@
+PASS passes
+FAIL arithmetic (test/fixtures/failing_test.candor:9)
+
+    assert total(a, 22) == 42
+           |     |      |
+           |     |      false
+           |     20
+           41
+
+FAIL optional (test/fixtures/failing_test.candor:13)
+
+    assert (find("Bob") ?? "?") == "ada@example.com"
+            |           |       |
+            |           |       false
+            |           "?"
+            none
+
+FAIL short circuit (test/fixtures/failing_test.candor:18)
+
+    assert n > 0 && 10 / n == 1
+           | |   |
+           | |   false
+           | false
+           0
+
+FAIL enum (test/fixtures/failing_test.candor:23)
+
+    assert area(s) == 28
+           |    |  |
+           |    |  false
+           |    Shape.Circle { center: Point { x: 1, y: 2 }, r: 3 }
+           27
+
+FAIL multi-line (test/fixtures/failing_test.candor:27)
+
+    assert ( total(2, 2) == 5 )
+             |           |
+             |           false
+             3
+
+FAIL io (test/fixtures/failing_test.candor:35)
+
+    assert io.output() == "hello\n"
+              |        |
+              |        false
+              "héllo\n"
+
+FAIL panics
+
+    panic: integer divide by zero
+      at test/fixtures/failing.candor:33 in div
+      at test/fixtures/failing_test.candor:39 in test "panics"
+
+1 passed, 7 failed

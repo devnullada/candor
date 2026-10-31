@@ -1,0 +1,19 @@
+module latereader
+
+// The reader goes wrong only if it reads after the writer's twentieth step and before its last:
+// uniform orders missed it in 9,000 tries, PCT finds it in tens to a hundred or two.
+fn watch() -> int uses tasks {
+  return tasks.scope((s) => {
+    let stage = s.atomic(0)
+    let seen = s.atomic(-1)
+    s.spawn(() => {
+      for i in 1..21 {
+        stage.set(i)
+      }
+      stage.set(100)
+    })
+    s.spawn(() => seen.set(stage.get()))
+    s.wait()
+    return seen.get()
+  })
+}

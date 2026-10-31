@@ -1,0 +1,10 @@
+module main
+
+import "slow"
+
+fn main() uses io, slow, tasks, clock {
+  let start = clock.now()
+  let r = tasks.timeout(50, () => slow.wait(10000))
+  io.println(r ?? "timed out")
+  io.println("well under 10 s: " + (clock.now() - start < 5000).toString())
+}

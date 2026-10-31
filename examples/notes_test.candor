@@ -1,0 +1,14 @@
+module notes
+
+test "notes come back in the order they were written" {
+  assert jot("test.db", ["a", "b"]) == Ok([Note { id: 1, body: "a" }, Note { id: 2, body: "b" }])
+}
+
+test "nothing is written before `open`" {
+  assert notes.add("a") == Err(NoteError.Closed)
+}
+
+test "a full disk is the result" {
+  notes.fill()
+  assert jot("test.db", ["a"]) == Err(NoteError.Failed { message: "database or disk is full" })
+}

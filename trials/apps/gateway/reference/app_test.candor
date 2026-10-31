@@ -1,0 +1,29 @@
+module gateway
+
+test "a key counts down, then waits for its oldest hits" {
+  let d = Defaults { limit: 3, window: 1000 }
+  let b = Board { keys: [:], allowed: 0, denied: 0 }
+  let (b1, o1) = check(b, d, "a", 2, 0)
+  assert o1 == Outcome.Allowed { remaining: 1 }
+  let (b2, o2) = check(b1, d, "a", 1, 400)
+  assert o2 == Outcome.Allowed { remaining: 0 }
+  let (b3, o3) = check(b2, d, "a", 2, 500)
+  assert o3 == Outcome.Denied { remaining: 0, retryAfter: 500 }
+  let (b4, o4) = check(b3, d, "a", 3, 500)
+  assert o4 == Outcome.Denied { remaining: 0, retryAfter: 900 }
+  let (b5, o5) = check(b4, d, "a", 2, 1000)
+  assert o5 == Outcome.Allowed { remaining: 0 }
+  assert stats(b5) == Stats { keys: 1, allowed: 3, denied: 2 }
+  let (_, o6) = check(b5, d, "a", 4, 1000)
+  assert o6 == Outcome.TooBig { limit: 3 }
+}
+
+test "the handler" {
+  let d = Defaults { limit: 1, window: 1000 }
+  let req = http.Request { method: "POST", path: "/check", query: [:], headers: [:], body: """{"key": "a"}""" }
+  let statuses = tasks.scope((s) => {
+    let board = s.mutex(Board { keys: [:], allowed: 0, denied: 0 })
+    return [req, req, http.Request { ...req, body: "{" }, http.Request { ...req, method: "GET" }].map((r) => handle(r, board, d).status)
+  })
+  assert statuses == [200, 429, 400, 405]
+}

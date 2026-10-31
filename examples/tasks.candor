@@ -1,0 +1,75 @@
+module tasks
+
+// Structured concurrency: work runs at the same time inside a scope, the scope waits for all of
+// it, and the first failure cancels the rest. Lookups are faked with `clock.sleep`.
+
+struct User {
+  id: int
+  name: string
+}
+
+fn fetchUser(id: int, ms: int) -> Result<User, string> uses clock {
+  clock.sleep(ms)
+  if id < 0 {
+    return Err("no user ${id}")
+  }
+  return Ok(User { id, name: "user${id}" })
+}
+
+fn fetchScore(id: int, ms: int) -> Result<int, string> uses clock {
+  clock.sleep(ms)
+  return Ok(id * 10)
+}
+
+// Both lookups at once. If one fails, the other is cancelled and the scope returns the error.
+fn profile(id: int) -> Result<string, string> uses tasks, clock {
+  return tasks.scope((s) => {
+    let user = s.spawn(() => fetchUser(id, 200))
+    let score = s.spawn(() => fetchScore(id, 200))
+    let u = user.join()?
+    return Ok("${u.name} scores ${score.join()?}")
+  })
+}
+
+fn show(r: Result<string, string>) uses io {
+  match r {
+    Ok(text) => io.println(text)
+    Err(e) => io.println("failed: ${e}")
+  }
+}
+
+fn main() uses io, clock, tasks {
+  let start = clock.now()
+  let users = tasks.all([1, 2, 3], (id) => fetchUser(id, 200))
+  let took = clock.now() - start
+  match users {
+    Ok(us) => io.println(us.map((u) => u.name).join(", "))
+    Err(e) => io.println("failed: ${e}")
+  }
+  io.println("3 lookups of 200 ms took under 400 ms: ${took < 400}")
+
+  show(profile(7))
+  show(profile(-1))
+
+  // The first to succeed wins; the others are cancelled.
+  match tasks.race([() => fetchScore(1, 300), () => fetchScore(2, 50)]) {
+    Ok(score) => io.println("fastest: ${score}")
+    Err(e) => io.println("failed: ${e}")
+  }
+
+  let late = tasks.timeout(50, () => fetchScore(3, 10_000))
+  io.println(if late == none { "timed out" } else { "in time" })
+}
+
+fn slowPrint(ms: int, text: string) -> Result<int, string> uses io, clock {
+  clock.sleep(ms)
+  io.println(text)
+  return Ok(ms)
+}
+
+fn failAfter(ms: int) -> Result<int, string> uses clock {
+  clock.sleep(ms)
+  return Err("gave up after ${ms}")
+}
+
+// Tests run on a scheduler with virtual time: sleeps take no real time, and parallel sleeps overlap.

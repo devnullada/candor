@@ -1,0 +1,153 @@
+module mime
+
+import "json"
+
+// Mail messages (RFC 5322 and MIME): `mime.parse(raw)` reads one, as IMAP fetches it, and
+// `mime.compose(draft)` writes a plain-text one for SMTP to send.
+//
+//   let m = mime.parse(fetched.source)?
+//   let who = m.from.map((a) => a.address) ?? "unknown"
+//   let body = m.text ?? ""
+//   for a in m.attachments { fs.writeBytes(fs.join([dir, a.filename ?? "attachment"]), a.data)? }
+//
+//   let out = mime.compose(mime.Draft {
+//     from: mime.Address { name: "Example", address: "dev@example.org" },
+//     to: [mime.Address { name: "", address: "ada@example.com" }],
+//     subject: "Re: ${m.subject ?? ""}",
+//     text: "Thanks!",
+//     inReplyTo: m.messageId,
+//     references: m.references.concat([m.messageId ?? ""].filter((r) => r != "")),
+//   })
+//   // out.messageId, out.data (the bytes to send), out.recipients
+//
+// Parsing decodes RFC 2047 words in headers and names, base64 and quoted-printable bodies, and
+// any charset to UTF-8. A message id is written without its angle brackets, in and out.
+
+// A mailbox: `"Ada Lovelace" <ada@example.com>` is `Address { name: "Ada Lovelace", address:
+// "ada@example.com" }`. A bare address has an empty name.
+pub struct Address {
+  pub name: string
+  pub address: string
+}
+impl Json for Address
+
+// A part of a message that isn't its text: a file, or an image the HTML shows by `contentId`.
+pub struct Attachment {
+  // As the sender named it, RFC 2047 and 2231 decoded; none if it has no name. Don't use it as
+  // a path as it is: it may be `../../x`.
+  pub filename: string?
+  pub contentType: string
+  // In bytes, decoded.
+  pub size: int
+  // Its Content-ID, without brackets: the HTML refers to it as `cid:...`.
+  pub contentId: string?
+  // Shown in the body (`Content-Disposition: inline`) rather than attached.
+  pub inline: bool
+  pub data: Bytes
+}
+impl Json for Attachment
+
+// A parsed message. What's missing is none or empty.
+pub struct Message {
+  // Without angle brackets, as `inReplyTo` and `references` are.
+  pub messageId: string?
+  pub inReplyTo: string?
+  // Oldest first, as sent.
+  pub references: List<string>
+  pub subject: string?
+  // The Date header, as ms since 1970 (UTC); none if missing or unreadable.
+  pub date: int?
+  pub from: Address?
+  pub to: List<Address>
+  pub cc: List<Address>
+  pub replyTo: List<Address>
+  // The text/plain body, decoded; several inline text parts are joined with "\n". None for an
+  // HTML-only mail: `m.text ?? html.toText(m.html ?? "")` (`import "html"`).
+  pub text: string?
+  // The text/html body, decoded, where there is one.
+  pub html: string?
+  pub attachments: List<Attachment>
+  // Every header as sent (encoded words left in), by lowercase name; `mime.header(m, name)`.
+  pub headers: Map<string, List<string>>
+}
+impl Json for Message
+
+// Why `mime.parse` couldn't read a message: its header block is broken.
+pub struct MimeError {
+  pub message: string
+}
+
+impl Show for MimeError {
+  fn toString(self) -> string {
+    return self.message
+  }
+}
+
+// A plain-text message to compose. `cc` and `references` may be left out.
+pub struct Draft {
+  pub from: Address
+  pub to: List<Address>
+  pub cc: List<Address>?
+  pub subject: string
+  pub text: string
+  // The id this answers, without brackets.
+  pub inReplyTo: string?
+  // The thread's ids, oldest first: the ones the answered message had, then its own.
+  pub references: List<string>?
+}
+
+// A composed message: what SMTP sends, and its id to keep.
+pub struct Composed {
+  // The Message-ID it was given, without brackets.
+  pub messageId: string
+  // The From address: the envelope's sender.
+  pub from: string
+  // To and Cc's addresses: the envelope's recipients.
+  pub recipients: List<string>
+  // The whole message, CRLF line ends.
+  pub data: Bytes
+}
+
+extern "./mimego" {
+  fn Parse(raw: string) -> Result<string, GoError> as goParse
+  fn Compose(fromName: string, fromAddress: string, to: List<string>, cc: List<string>, subject: string, text: string, inReplyTo: string, references: List<string>, id: string, dateMs: int) -> string as goCompose
+}
+
+// Reads a raw message, as IMAP's `source` gives it.
+pub fn parse(raw: Bytes) -> Result<Message, MimeError> {
+  let text = goParse(raw.toRawText()).mapErr((e) => MimeError { message: e.message() })?
+  return json.decode<Message>(text).mapErr((e) => MimeError { message: "${e}" })
+}
+
+// Every value of the header `name` (any case), as sent: `mime.header(m, "list-id")`.
+pub fn header(m: Message, name: string) -> List<string> {
+  return m.headers[name.toLowerCase()] ?? []
+}
+
+// Writes `d` as a UTF-8 plain-text message, with a new Message-ID (`<uuid@domain of from>`)
+// and the Date now. Non-ASCII in the subject and names is RFC 2047 encoded.
+pub fn compose(d: Draft) -> Composed uses random, clock {
+  let domain = match d.from.address.lastIndexOf("@") {
+    none => "localhost",
+    at => d.from.address.slice(at + 1),
+  }
+  let id = "${random.uuid()}@${domain}"
+  let cc = d.cc ?? []
+  let data = goCompose(d.from.name, d.from.address, pairs(d.to), pairs(cc), d.subject, d.text, d.inReplyTo ?? "", d.references ?? [], id, clock.now())
+  return Composed {
+    messageId: id,
+    from: d.from.address,
+    recipients: d.to.concat(cc).map((a) => a.address),
+    data: data.toBytes(),
+  }
+}
+
+// Addresses as name, address pairs, for the runtime.
+fn pairs(xs: List<Address>) -> List<string> {
+  let mut out: List<string> = []
+  for a in xs {
+    out.push(a.name)
+    out.push(a.address)
+  }
+  return out
+}

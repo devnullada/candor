@@ -1,0 +1,6 @@
+#1 for Ada (VIP), pending
+#2 for Ada (VIP), paid at 1700
+#3 for Bob, refunded 40: late
+discounts: 0, 25, 0
+(2 + 3) * 4 = 20
+paid order seen at 1700

@@ -1,0 +1,141 @@
+module smtp
+
+import "mime"
+
+// Sending mail, with `uses smtp`: a message `mime.compose` wrote, to its recipients.
+//
+//   let account = smtp.Account { host: "smtp.zoho.eu", port: 465, user, password }
+//   smtp.verify(account)?                  // logs in and sends nothing
+//   let out = mime.compose(draft)
+//   smtp.send(account, out)?               // keep out.messageId to thread on
+//
+// Port 465 is implicit TLS; any other port (587) must offer STARTTLS, or nothing is sent: the
+// password never goes in the clear. AUTH PLAIN, or LOGIN where that's all the server offers.
+// `timeoutMs` (60 s left out) bounds connecting and then each command; cancelling the task
+// ends the connection.
+//
+// In a test nothing is sent: `smtp.sent()` gives what was, `smtp.refuseLogin(message)` makes
+// logins fail and `smtp.refuseRecipient(address)` that address.
+
+// Where to log in. `timeoutMs` left out is 60 s.
+pub struct Account {
+  pub host: string
+  pub port: int
+  pub user: string
+  // For Zoho, Gmail and most hosted mail, an app password.
+  pub password: string
+  pub timeoutMs: int?
+}
+
+// Why sending failed.
+pub enum SmtpError {
+  // No connection: a bad host or port, no TLS, the connection broken.
+  Connect { message: string }
+  // The server refused the user and password: for a send, nothing was sent.
+  Login { message: string }
+  // The server refused a recipient (the message says which); nothing was sent.
+  Recipient { message: string }
+  // No answer within `timeoutMs`.
+  Timeout
+  // Anything else the server refused.
+  Failed { message: string }
+}
+
+impl Show for SmtpError {
+  fn toString(self) -> string {
+    return match self {
+      .Connect { message } => "can't connect: ${message}",
+      .Login { message } => "login refused: ${message}",
+      .Recipient { message } => "recipient refused: ${message}",
+      .Timeout => "timed out",
+      .Failed { message } => message,
+    }
+  }
+}
+
+// What the fake sent: the envelope, and the message.
+pub struct Sent {
+  pub from: string
+  pub recipients: List<string>
+  pub message: mime.Composed
+}
+
+// Mail submission: having `smtp` is the permission to send mail.
+effect smtp {
+  extern "./smtpgo" {
+    fn Verify(ctx, host: string, port: int, user: string, password: string, timeoutMs: int) -> Result<void, GoError> as goVerify
+    fn Send(ctx, host: string, port: int, user: string, password: string, timeoutMs: int, from: string, recipients: List<string>, data: string) -> Result<void, GoError> as goSend
+  }
+
+  // Connects and logs in, and sends nothing: an app password that can read mail may still be
+  // refused here.
+  pub fn verify(account: Account) -> Result<void, SmtpError> {
+    return goVerify(account.host, account.port, account.user, account.password, account.timeoutMs ?? 60_000).mapErr(smtpError)
+  }
+
+  // Sends `m` from its From address to its recipients (To and Cc).
+  pub fn send(account: Account, m: mime.Composed) -> Result<void, SmtpError> {
+    return goSend(account.host, account.port, account.user, account.password, account.timeoutMs ?? 60_000, m.from, m.recipients, m.data.toRawText()).mapErr(smtpError)
+  }
+}
+
+// Keeps what would be sent; nothing goes over the network.
+fake smtp {
+  let mut outbox: List<Sent> = []
+  let mut loginRefusal: string? = none
+  let mut refused: List<string> = []
+
+  fn verify(account: Account) -> Result<void, SmtpError> {
+    return match loginRefusal {
+      none => Ok(),
+      message => Err(SmtpError.Login { message }),
+    }
+  }
+
+  fn send(account: Account, m: mime.Composed) -> Result<void, SmtpError> {
+    match loginRefusal {
+      none => {},
+      message => return Err(SmtpError.Login { message }),
+    }
+    if m.recipients.isEmpty() {
+      return Err(SmtpError.Recipient { message: "no recipients" })
+    }
+    for r in m.recipients {
+      if refused.contains(r) {
+        return Err(SmtpError.Recipient { message: "${r}: 550 no such user" })
+      }
+    }
+    outbox.push(Sent { from: m.from, recipients: m.recipients, message: m })
+    return Ok()
+  }
+
+  // Every message sent so far, in order.
+  fn sent() -> List<Sent> {
+    return outbox
+  }
+
+  // Logins fail with `message` from now on.
+  fn refuseLogin(message: string) {
+    loginRefusal = message
+  }
+
+  // A send to `address` fails from now on, and sends nothing.
+  fn refuseRecipient(address: string) {
+    refused.push(address)
+  }
+}
+
+extern "./smtpgo" {
+  fn Kind(err: GoError) -> int as kind
+}
+
+// The runtime's failure as an SmtpError.
+fn smtpError(e: GoError) -> SmtpError {
+  return match kind(e) {
+    0 => SmtpError.Connect { message: e.message() },
+    1 => SmtpError.Login { message: e.message() },
+    2 => SmtpError.Recipient { message: e.message() },
+    3 => SmtpError.Timeout,
+    _ => SmtpError.Failed { message: e.message() },
+  }
+}

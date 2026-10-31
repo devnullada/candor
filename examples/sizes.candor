@@ -1,0 +1,21 @@
+module sizes
+
+import "bindings/humanize"
+
+// A binding for a third-party Go package. `candor build` gets it at the version the binding
+// names and adds it to the generated go.mod.
+
+fn describe(spec: string) -> string {
+  return match humanize.parseBytes(spec) {
+    Ok(n) => "${spec} is ${humanize.comma(n)} bytes, or ${humanize.bytes(n)}",
+    Err(e) => "${spec}: ${e.message()}",
+  }
+}
+
+fn main() uses io {
+  io.println(describe("42 MB"))
+  io.println(describe("1.5 GiB"))
+  io.println(describe("lots"))
+  io.println("a kilobyte is ${humanize.kByte} bytes")
+  io.println("the ${humanize.ordinal(3)} try")
+}

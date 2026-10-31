@@ -1,0 +1,124 @@
+module regex
+
+import "json"
+
+// Regular expressions, in Go's RE2 syntax: no backreferences or lookaround, and matching takes
+// time linear in the text, whatever the pattern.
+//
+//   let digits = regex.compile("^[0-9]+$")?
+//   if regex.matches(digits, id) { ... }
+//
+//   let date = regex.compile("(?P<year>[0-9]{4})-([0-9]{2})")?
+//   match regex.find(date, "due 2026-10, paid 2026-11") {
+//     none => ...,
+//     m => io.println("${m.named["year"] ?? ""} at ${m.start}"),   // "2026 at 4"
+//   }
+//   regex.replace(date, text, "$2/\${year}")                       // "10/2026"
+//   regex.replaceWith(date, text, (m) => m.text.toUpperCase())
+//   regex.split(regex.compile(",\\s*")?, "a, b,c")                 // ["a", "b", "c"]
+//   regex.compile(regex.quote("1+1=2"))?                          // matches "1+1=2" itself
+//
+// `(?i)` at the start ignores case, `(?s)` lets `.` match a newline, `(?m)` makes `^` and `$`
+// match at line ends. Positions count code points, as `slice` and `indexOf` do.
+
+// A compiled pattern. Only `regex.compile` makes one; compare it, keep it, pass it around.
+pub struct Regex {
+  pattern: string
+}
+
+// A pattern that doesn't compile, with Go's reason: "missing closing ): `(a`".
+pub struct RegexError {
+  pub pattern: string
+  pub message: string
+}
+
+impl Show for RegexError {
+  fn toString(self) -> string {
+    return "bad pattern ${self.pattern}: ${self.message}"
+  }
+}
+
+// Where a pattern matched.
+pub struct Match {
+  // The text matched: `groups[0]`.
+  pub text: string
+  // In code points: `s.slice(m.start, m.end) == m.text`.
+  pub start: int
+  pub end: int
+  // Group i at `groups[i]`, the whole match at 0; "" for a group that took no part, as in Go.
+  pub groups: List<string>
+  // The named groups that took part, `(?P<name>...)`, by name.
+  pub named: Map<string, string>
+}
+impl Json for Match
+
+extern "./regexgo" {
+  fn Check(pattern: string) -> Result<void, GoError> as goCheck
+  fn Find(pattern: string, s: string, n: int) -> string as goFind
+  fn Replace(pattern: string, s: string, with: string) -> string as goReplace
+  fn Split(pattern: string, s: string) -> List<string> as goSplit
+  fn Quote(s: string) -> string as goQuote
+}
+
+// Compiles `pattern`, or says why it doesn't: `regex.compile("[0-9]+")?`. Backslashes in a
+// Candor string are doubled: `"\\d+"` is the pattern `\d+`.
+pub fn compile(pattern: string) -> Result<Regex, RegexError> {
+  goCheck(pattern).mapErr((e) => RegexError { pattern, message: e.message() })?
+  return Ok(Regex { pattern })
+}
+
+// The pattern `r` was compiled from.
+pub fn source(r: Regex) -> string {
+  return r.pattern
+}
+
+// Whether `r` matches anywhere in `s`; `^...$` for the whole of it.
+pub fn matches(r: Regex, s: string) -> bool {
+  return find(r, s) != none
+}
+
+// The first match in `s`, or none.
+pub fn find(r: Regex, s: string) -> Match? {
+  return decode(goFind(r.pattern, s, 1))[0]
+}
+
+// Every match in `s`, left to right, none overlapping.
+pub fn findAll(r: Regex, s: string) -> List<Match> {
+  return decode(goFind(r.pattern, s, -1))
+}
+
+// `s` with every match replaced by `with`, in which `$1` is group 1 and `${name}` a named
+// group; `$$` is a `$`. In a Candor string `${` interpolates, so write `"\${name}"`. Write
+// `"\${1}x"` for group 1 followed by `x`: `$1x` is the group named `1x`.
+pub fn replace(r: Regex, s: string, with: string) -> string {
+  return goReplace(r.pattern, s, with)
+}
+
+// `s` with every match replaced by what `with` makes of it.
+pub fn replaceWith(r: Regex, s: string, with: fn(Match) -> string) -> string uses with {
+  let mut out = ""
+  let mut at = 0
+  for m in findAll(r, s) {
+    out = out + s.slice(at, m.start) + with(m)
+    at = m.end
+  }
+  return out + s.slice(at)
+}
+
+// `s` cut around the matches of `r`: `split(compile(",")?, "a,b")` is `["a", "b"]`.
+pub fn split(r: Regex, s: string) -> List<string> {
+  return goSplit(r.pattern, s)
+}
+
+// `s` with every metacharacter escaped: a pattern matching exactly `s`.
+pub fn quote(s: string) -> string {
+  return goQuote(s)
+}
+
+fn decode(text: string) -> List<Match> {
+  // Go wrote it from its own structs, so it always decodes.
+  return match json.decode<List<Match>>(text) {
+    Ok(ms) => ms,
+    Err(_) => [],
+  }
+}

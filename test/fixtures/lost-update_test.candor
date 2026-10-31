@@ -1,0 +1,23 @@
+module lostUpdate
+
+test "three bumps make three" {
+  tasks.scope((s) => {
+    let n = s.atomic(0)
+    for _ in [1, 2, 3] {
+      s.spawn(() => {
+        let v = n.get()
+        n.set(v + 1)
+      })
+    }
+    s.wait()
+    assert n.get() == 3
+  })
+}
+
+test "one task" {
+  tasks.scope((s) => {
+    let n = s.atomic(0)
+    s.spawn(() => n.set(n.get() + 1)).join()
+    assert n.get() == 1
+  })
+}

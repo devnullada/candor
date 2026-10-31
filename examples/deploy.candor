@@ -1,0 +1,32 @@
+module deploy
+
+import "exec"
+import "fs"
+
+// Ships a site: pipes a tarball into `ssh` and streams the release script's output as it runs:
+// `candor run examples/deploy.candor -- web1 site.tar.gz`. Its tests script what ssh prints.
+
+// Runs the release on `host` with `tarball` on its stdin, passing each line to `show` as it
+// comes. The lines it printed on stderr, or why it failed.
+fn release(host: string, tarball: string, show: fn(string)) -> Result<int, string> uses exec, show {
+  let cmd = exec.withStdinFile(exec.command("ssh", [host, "./release.sh"]), tarball)
+  let done = exec.run(cmd, 0, (warnings, line) => {
+    show(if line.fromStderr { "! ${line.text}" } else { line.text })
+    return if line.fromStderr { warnings + 1 } else { warnings }
+  }).mapErr((e) => e.toString())?
+  if done.code != 0 {
+    return Err("release.sh on ${host} exited ${done.code}")
+  }
+  return Ok(done.value)
+}
+
+fn main() -> Result<void, string> uses io, env, fs, exec {
+  let host = env.args()[0] ?? "web1"
+  let tarball = env.args()[1] ?? "site.tar.gz"
+  if !fs.exists(tarball) {
+    return Err("no ${tarball}: pack the site first")
+  }
+  let warnings = release(host, tarball, (line) => io.println(line))?
+  io.println("released to ${host}, ${warnings} warnings")
+  return Ok()
+}

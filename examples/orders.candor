@@ -1,0 +1,96 @@
+module orders
+
+struct Customer {
+  name: string
+  vip: bool
+}
+
+enum Status {
+  Pending
+  Paid { at: int }
+  Refunded { amount: int, reason: string }
+}
+
+struct Order {
+  id: int
+  customer: Customer
+  total: int
+  status: Status
+}
+
+// Recursive: an enum may contain itself.
+enum Expr {
+  Num { value: int }
+  Add { left: Expr, right: Expr }
+  Mul { left: Expr, right: Expr }
+}
+
+// How an order reads in a string: `"${o}"` and `o.toString()` both call this.
+impl Show for Order {
+  fn toString(self) -> string {
+    let who = if self.customer.vip { "${self.customer.name} (VIP)" } else { self.customer.name }
+    return "#${self.id} for ${who}, ${self.status}"
+  }
+}
+
+// Derived: an expression reads as Candor writes it.
+impl Show for Expr
+
+impl Show for Status {
+  fn toString(self) -> string {
+    return match self {
+      Status.Pending => "pending"
+      Status.Paid { at } => "paid at ${at}"
+      Status.Refunded { amount, reason } => "refunded ${amount}: ${reason}"
+    }
+  }
+}
+
+// Nested patterns: VIPs get 10% back on paid orders.
+fn discount(o: Order) -> int {
+  return match o {
+    Order { customer: Customer { vip: true }, status: Status.Paid } => o.total / 10
+    _ => 0
+  }
+}
+
+// A contract: what the caller must pass, and what comes back. Checked on every call.
+fn refund(o: Order, amount: int, reason: string) -> Order
+  requires amount > 0 && amount <= o.total
+  ensures result.total == o.total - amount
+{
+  return Order { ...o, total: o.total - amount, status: Status.Refunded { amount, reason } }
+}
+
+fn eval(e: Expr) -> int {
+  return match e {
+    Expr.Num { value } => value
+    Expr.Add { left, right } => eval(left) + eval(right)
+    Expr.Mul { left, right } => eval(left) * eval(right)
+  }
+}
+
+fn main() uses io {
+  let ada = Customer { name: "Ada", vip: true }
+  let first = Order { id: 1, customer: ada, total: 250, status: Status.Pending }
+  let paid = Order { ...first, id: 2, status: Status.Paid { at: 1700 } }
+  let bobs = Order { ...paid, id: 3, customer: Customer { name: "Bob", vip: false } }
+  let refunded = refund(bobs, 40, "late")
+  for o in [first, paid, refunded] {
+    io.println("${o}")
+  }
+  io.println("discounts: ${discount(first)}, ${discount(paid)}, ${discount(refunded)}")
+
+  // (2 + 3) * 4
+  let e = Expr.Mul {
+    left: Expr.Add { left: Expr.Num { value: 2 }, right: Expr.Num { value: 3 } },
+    right: Expr.Num { value: 4 },
+  }
+  io.println("(2 + 3) * 4 = ${eval(e)}")
+
+  // `match` as a statement.
+  match paid.status {
+    Status.Paid { at } => io.println("paid order seen at ${at}")
+    _ => io.println("not paid")
+  }
+}

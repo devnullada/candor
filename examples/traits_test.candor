@@ -1,0 +1,23 @@
+module traits
+
+test "sorting by impl Ord" {
+  let a = User { name: "a", age: 2 }
+  let b = User { name: "b", age: 1 }
+  assert [a, b].sorted() == [b, a]
+  assert a > b
+  assert largest([a, b]) == a
+  assert largest<int>([]) == none
+}
+
+test "bounds pass on" {
+  assert hasBoth([1, 2, 3], 3, 1)
+  assert !hasBoth(["a"], "a", "b")
+  assert rank([User { name: "x", age: 3 }, User { name: "y", age: 1 }]).best == User { name: "x", age: 3 }
+  assert sameRanking([3, 1, 2], [2, 3, 1])
+  assert !sameRanking([[1]].map((xs) => xs.length()), [2])
+}
+
+test "Eq through a bound" {
+  assert has([Role.Admin], Role.Admin)
+  assert !has([Role.Guest { since: 1 }], Role.Guest { since: 2 })
+}

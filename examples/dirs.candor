@@ -1,0 +1,98 @@
+module dirs
+
+// Lays out a project's folders, all at once. Making folders touches the disk, so it is the
+// effect `dirs`; tests get a fake, a disk in memory.
+
+pub enum DirError {
+  // Go could not do it: no permission, a file in the way.
+  Failed { path: string, message: string }
+}
+
+effect dirs {
+  extern "os" {
+    // Go's os.MkdirAll returns only an `error`: nothing to give back when it works.
+    fn MkdirAll(path: string, perm: int) -> Result<void, GoError> as mkdirAll
+    fn RemoveAll(path: string) -> Result<void, GoError> as removeAll
+    fn TempDir() -> string as tempDir
+  }
+
+  // Makes `path`, and the folders above it that it needs.
+  pub fn make(path: string) -> Result<void, DirError> {
+    // 493 is 0755: everyone may look, only the owner may change.
+    return failed(path, mkdirAll(path, 493))
+  }
+
+  // Removes `path` and everything in it.
+  pub fn remove(path: string) -> Result<void, DirError> {
+    return failed(path, removeAll(path))
+  }
+
+  // A folder for scratch work.
+  pub fn scratch() -> string {
+    return tempDir()
+  }
+}
+
+fake dirs {
+  let mut made: List<string> = []
+  let mut refused: List<string> = []
+
+  fn make(path: string) -> Result<void, DirError> {
+    if refused.contains(path) {
+      return Err(DirError.Failed { path, message: "permission denied" })
+    }
+    made.push(path)
+    return Ok()
+  }
+
+  fn remove(path: string) -> Result<void, DirError> {
+    made = []
+    return Ok()
+  }
+
+  fn scratch() -> string {
+    return "/tmp"
+  }
+
+  // From now on, making `path` fails.
+  fn refuse(path: string) {
+    refused.push(path)
+  }
+
+  // Every folder made so far, sorted: tasks make them in any order.
+  fn folders() -> List<string> {
+    return made.sorted()
+  }
+}
+
+fn failed(path: string, r: Result<void, GoError>) -> Result<void, DirError> {
+  return match r {
+    Ok() => Ok(),
+    Err(e) => Err(DirError.Failed { path, message: e.message() }),
+  }
+}
+
+// Makes every folder at once. The first failure cancels the rest, and is the result.
+fn layout(root: string, folders: List<string>) -> Result<void, DirError> uses dirs, tasks {
+  return tasks.scope((s) => {
+    for f in folders {
+      s.spawn(() => dirs.make("${root}/${f}"))
+    }
+    return Ok()
+  })
+}
+
+fn build(root: string) -> Result<void, DirError> uses io, dirs, tasks {
+  layout(root, ["src", "src/api", "docs", "test"])?
+  io.println("laid out 4 folders")
+  dirs.remove(root)?
+  io.println("cleaned up")
+  return Ok()
+}
+
+fn main() uses io, dirs, tasks {
+  match build("${dirs.scratch()}/candor-dirs-example") {
+    Ok() => io.println("done"),
+    Err(DirError.Failed { path, message }) => io.println("cannot make ${path}: ${message}"),
+  }
+}

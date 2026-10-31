@@ -1,0 +1,35 @@
+module lists
+
+test "sum adds" {
+  assert sum([1, 2, 3]) == 6
+  assert sum([]) == 0
+}
+
+test "pushing to a copy leaves the original alone" {
+  let a = [1, 2]
+  let mut b = a
+  b.push(3)
+  let mut c = a
+  c.push(4)
+  assert a == [1, 2] && b == [1, 2, 3] && c == [1, 2, 4]
+}
+
+test "structs compare by value" {
+  let o = orders()[0] ?? Order { id: 0, customer: "", total: 0, paid: false }
+  assert o == Order { id: 1, customer: "Ada", total: 120, paid: true }
+  assert orders().filter((x) => x.customer == "Ada").length() == 2
+}
+
+test "pop" {
+  let mut stack = [1, 2, 3]
+  assert stack.pop() == 3
+  stack.push(9)
+  assert stack == [1, 2, 9]
+  let mut empty: List<int> = []
+  assert empty.pop() == none
+}
+
+test "callbacks print through the fake" {
+  each(orders().filter((o) => o.paid), (o) => io.println(o.customer))
+  assert io.output() == "Ada\nAda\n"
+}

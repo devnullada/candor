@@ -1,0 +1,176 @@
+module json
+
+// JSON for types with `impl Json`, which is derived: `impl Json for Todo`, with no body.
+//
+// A struct is an object of its fields, `T?` is the value or null, a list is an array, and
+// `Map<string, T>` is an object. An enum whose variants have no fields is a string, `"Open"`;
+// any other enum is an object naming its variant with `kind`: `{"kind":"Circle","r":2}`.
+// Decoding skips fields it doesn't know (`decodeStrict` refuses them), and a missing or null
+// `T?` field is `none`.
+//
+// A none field is left out, unless the type says `nulls`: `impl Json(nulls) for Quote` writes
+// `"coupon":null` (with a rule too: `impl Json(snake, nulls)`).
+//
+// Names are as written, unless a rule renames them all, `impl Json(snake) for Todo` (also
+// `kebab`, `camel` and `pascal`), or `as` renames one: `kind_: string as "type"`, and on a
+// variant, `InProgress as "in-progress"`.
+//
+// A form of your own: `impl Json for Money via string { fn toJson(self) -> string { ... }
+// fn fromJson(s: string) -> Result<Money, string> { ... } }`. An `Err` from `fromJson` is a
+// decode error at that value's path.
+
+// Why `decode` failed, and where: `$.items[2].title: expected a string, found 3`.
+pub struct Error {
+  pub path: string
+  pub message: string
+}
+
+impl Show for Error {
+  fn toString(self) -> string {
+    return "${self.path}: ${self.message}"
+  }
+}
+
+// Any JSON, for a document whose shape no type gives: `json.decode<json.Value>(text)`, or a
+// field of type `json.Value` in a typed struct. A number without `.` or an exponent that fits is
+// an `Int`, any other a `Float`; an object keeps its keys in order. A number keeps its `text`
+// as written when `value` would write differently (`1.50`, `1e3`, a whole number past int64),
+// and is encoded as that text, so a document passes through unchanged. Read it with `match`, or
+// with the methods of `Lookup`, which give `.Null` for what isn't there so they chain:
+// `v.get("vcardArray").at(1).at(0).at(3).text()` is a `string?`. `"${v}"` is its JSON.
+pub enum Value {
+  Null
+  Bool { value: bool }
+  // `text`: the number as the JSON wrote it, when that isn't how `value` writes; none otherwise
+  // and for numbers built in code.
+  Int { value: int, text: string? }
+  Float { value: float, text: string? }
+  Text { value: string }
+  List { items: List<Value> }
+  Object { fields: Map<string, Value> }
+}
+
+// Written as the JSON it holds (the compiler gives it its body), not as `{"kind": ...}`.
+impl Json for Value
+
+impl Show for Value {
+  fn toString(self) -> string {
+    return encode(self)
+  }
+}
+
+// Reading a `Value` a step at a time.
+pub trait Lookup {
+  // An object's field, `.Null` if it has none of that name or isn't an object.
+  fn get(self, key: string) -> Value
+  // A list's item, `.Null` past its end or if it isn't a list.
+  fn at(self, index: int) -> Value
+  fn text(self) -> string?
+  fn int(self) -> int?
+  // An `Int` too, as a float.
+  fn float(self) -> float?
+  fn bool(self) -> bool?
+  // A list's items; empty if it isn't a list.
+  fn items(self) -> List<Value>
+  // An object's fields, in order; empty if it isn't an object.
+  fn fields(self) -> Map<string, Value>
+}
+
+impl Lookup for Value {
+  fn get(self, key: string) -> Value {
+    return match self {
+      .Object { fields } => fields[key] ?? Value.Null,
+      _ => Value.Null,
+    }
+  }
+
+  fn at(self, index: int) -> Value {
+    return match self {
+      .List { items } => items[index] ?? Value.Null,
+      _ => Value.Null,
+    }
+  }
+
+  fn text(self) -> string? {
+    return match self {
+      .Text { value } => value,
+      _ => none,
+    }
+  }
+
+  fn int(self) -> int? {
+    return match self {
+      .Int { value } => value,
+      _ => none,
+    }
+  }
+
+  fn float(self) -> float? {
+    return match self {
+      .Float { value } => value,
+      .Int { value } => value.toFloat(),
+      _ => none,
+    }
+  }
+
+  fn bool(self) -> bool? {
+    return match self {
+      .Bool { value } => value,
+      _ => none,
+    }
+  }
+
+  fn items(self) -> List<Value> {
+    return match self {
+      .List { items } => items,
+      _ => [],
+    }
+  }
+
+  fn fields(self) -> Map<string, Value> {
+    return match self {
+      .Object { fields } => fields,
+      _ => [:],
+    }
+  }
+}
+
+// `value` as compact JSON text.
+pub fn encode<T: Json>(value: T) -> string {
+  // The compiler gives this its body (`jsonBodies` in emit-go).
+  return ""
+}
+
+// `value` as JSON text over several lines, two spaces a level, as JavaScript's
+// `JSON.stringify(v, null, 2)`: for files people read and diff. No newline at the end.
+pub fn encodeIndented<T: Json>(value: T) -> string {
+  // The compiler gives this its body (`jsonBodies` in emit-go).
+  return ""
+}
+
+// Reads `text` as a T: `json.decode<Todo>(body)`.
+pub fn decode<T: Json>(text: string) -> Result<T, Error> {
+  // The compiler gives this its body (`jsonBodies` in emit-go).
+  return Err(Error { path: "$", message: text })
+}
+
+// Reads `text` as a T, as `decode` does, but a field no type in it knows is an error:
+// `$.don: unknown field; expected one of "title", "done"`.
+pub fn decodeStrict<T: Json>(text: string) -> Result<T, Error> {
+  // The compiler gives this its body (`jsonBodies` in emit-go).
+  return Err(Error { path: "$", message: text })
+}
+
+// `value` as compact JSON, written to `w`: `fs.writing(path, (w) => json.encodeTo(config, w))`.
+pub fn encodeTo<T: Json>(value: T, w: fn(Bytes) -> Result<void, string>) -> Result<void, string> uses w {
+  return w(encode(value).toBytes())
+}
+
+// Reads `r` to its end and decodes it as `decode` does: `fs.reading(path, (r) =>
+// json.decodeFrom<Config>(r))`. An error is text: the reader's, or the decode's as `Error`
+// shows it.
+pub fn decodeFrom<T: Json>(r: fn(int) -> Result<Bytes?, string>) -> Result<T, string> uses r {
+  // The compiler gives this its body (`jsonBodies` in emit-go).
+  r(0)?
+  return Err("")
+}

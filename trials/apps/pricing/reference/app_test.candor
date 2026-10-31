@@ -1,0 +1,23 @@
+module pricing
+
+test "the spec's example" {
+  let q = price(Cart { items: [ItemIn { sku: "wine", qty: 1 }, ItemIn { sku: "apple", qty: 7 }], tier: "gold", coupon: "SAVE10" })
+  assert q == Ok(Quote {
+    lines: [
+      Line { sku: "apple", qty: 7, gross: 250, discount: 25, net: 225, tax: 23, total: 248 },
+      Line { sku: "wine", qty: 1, gross: 1500, discount: 0, net: 1500, tax: 375, total: 1875 },
+    ],
+    subtotal: 2123,
+    voucher: 0,
+    total: 2123,
+    coupon: CouponView { code: "SAVE10", applied: false },
+  })
+}
+
+test "states" {
+  assert next("pending", "pay") == "paid"
+  assert next("cancelled", "pay") == none
+  let (b, o) = add(Book { orders: [:], next: 1 }, 100)
+  let (_, r) = act(b, o.id, "ship")
+  assert r == Err((409, "can't ship an order that is pending"))
+}

@@ -1,0 +1,93 @@
+module bookings
+
+test "rooms are added and listed" {
+  assert migrate() == Ok()
+  assert send("POST", "/rooms", """{"name": " Fjord "}""") == http.jsonResponse(201, Room { id: 1, name: "Fjord" })
+  send("POST", "/rooms", """{"name": "Glacier"}""")
+  assert send("GET", "/rooms", "").body == """[{"id":1,"name":"Fjord"},{"id":2,"name":"Glacier"}]"""
+}
+
+test "a booking is made and listed by start" {
+  assert migrate() == Ok()
+  send("POST", "/rooms", """{"name": "Fjord"}""")
+  assert send("POST", "/bookings", """{"room": 1, "start": 13, "end": 15}""") == http.jsonResponse(201, Booking { id: 1, room: 1, start: 13, end: 15 })
+  assert send("POST", "/bookings", """{"room": 1, "start": 9, "end": 10}""").status == 201
+  assert send("GET", "/rooms/1/bookings", "").body == """[{"id":2,"room":1,"start":9,"end":10},{"id":1,"room":1,"start":13,"end":15}]"""
+}
+
+test "an overlapping booking is 409 and isn't stored" {
+  assert migrate() == Ok()
+  send("POST", "/rooms", """{"name": "Fjord"}""")
+  send("POST", "/rooms", """{"name": "Glacier"}""")
+  assert send("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}""").status == 201
+  let clash = send("POST", "/bookings", """{"room": 1, "start": 10, "end": 12}""")
+  assert clash.status == 409
+  assert clash.body == """{"error":"room 1 is booked from 9 to 11 (booking 1)"}"""
+  assert send("POST", "/bookings", """{"room": 1, "start": 8, "end": 13}""").status == 409
+  // Touching ends don't overlap, and another room is free.
+  assert send("POST", "/bookings", """{"room": 1, "start": 11, "end": 12}""").status == 201
+  assert send("POST", "/bookings", """{"room": 2, "start": 10, "end": 12}""").status == 201
+  assert bookingsOf(1) == Ok([Booking { id: 1, room: 1, start: 9, end: 11 }, Booking { id: 2, room: 1, start: 11, end: 12 }])
+}
+
+// The test scheduler passes the turn at every effect call, so without the transaction the four
+// tasks' checks could all run before any insert.
+test "concurrent bookings of the same hours: one wins" {
+  assert migrate() == Ok()
+  send("POST", "/rooms", """{"name": "Fjord"}""")
+  let statuses = tasks.all([1, 2, 3, 4], (n) => send("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}""").status)
+  assert statuses.filter((s) => s == 201).length() == 1
+  assert statuses.filter((s) => s == 409).length() == 3
+  assert bookingsOf(1) == Ok([Booking { id: 1, room: 1, start: 9, end: 11 }])
+}
+
+test "a booking is deleted" {
+  assert migrate() == Ok()
+  send("POST", "/rooms", """{"name": "Fjord"}""")
+  send("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}""")
+  assert send("DELETE", "/bookings/1", "") == http.emptyResponse(204)
+  assert send("GET", "/rooms/1/bookings", "").body == "[]"
+  // Its hours are free again.
+  assert send("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}""").status == 201
+}
+
+test "bad bodies and values are 400" {
+  assert migrate() == Ok()
+  send("POST", "/rooms", """{"name": "Fjord"}""")
+  assert send("POST", "/rooms", "{").body == """{"error":"bad body: $: not JSON: it ends too soon"}"""
+  assert send("POST", "/rooms", """{"name": "  "}""").status == 400
+  assert send("POST", "/rooms", """{"name": 3}""").status == 400
+  assert send("POST", "/bookings", """{"room": 1, "start": 9}""").status == 400
+  assert send("POST", "/bookings", """{"room": 1, "start": "9", "end": 11}""").status == 400
+  assert send("POST", "/bookings", """{"room": 1, "start": 11, "end": 9}""").body == """{"error":"`start` must be before `end`, got 11 to 9"}"""
+  assert send("POST", "/bookings", """{"room": 1, "start": 9, "end": 9}""").status == 400
+  assert send("POST", "/bookings", """{"room": 1, "start": -1, "end": 9}""").status == 400
+  assert send("POST", "/bookings", """{"room": 1, "start": 20, "end": 25}""").status == 400
+}
+
+test "unknown ids are 404" {
+  assert migrate() == Ok()
+  assert send("GET", "/rooms/7/bookings", "").status == 404
+  assert send("GET", "/rooms/x/bookings", "").status == 404
+  assert send("POST", "/bookings", """{"room": 7, "start": 9, "end": 11}""").body == """{"error":"no room 7"}"""
+  assert send("DELETE", "/bookings/7", "").status == 404
+  assert send("DELETE", "/bookings/x", "").status == 404
+  assert send("GET", "/nope", "").status == 404
+}
+
+test "a database error is 500" {
+  // No `migrate()`: there are no tables.
+  assert send("GET", "/rooms", "").status == 500
+  assert send("POST", "/rooms", """{"name": "Fjord"}""").status == 500
+  assert send("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}""").status == 500
+  assert send("DELETE", "/bookings/1", "").status == 500
+}
+
+test "the wrong method is 405" {
+  assert migrate() == Ok()
+  assert send("PUT", "/rooms", "").status == 405
+  assert send("GET", "/bookings", "").status == 405
+  assert send("POST", "/rooms/1/bookings", "").status == 405
+  assert send("GET", "/bookings/1", "").status == 405
+  assert send("DELETE", "/rooms", "").body == """{"error":"/rooms takes GET and POST"}"""
+}

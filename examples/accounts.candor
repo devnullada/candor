@@ -1,0 +1,71 @@
+module accounts
+
+struct User {
+  name: string
+  email: string?
+  // Recursion through an optional: the chain ends at `none`.
+  manager: User?
+}
+
+enum ParseError {
+  Empty
+  NotADigit { text: string }
+}
+
+fn parseDigit(s: string) -> Result<int, ParseError> {
+  return match s {
+    "" => Err(ParseError.Empty)
+    "0" => Ok(0)
+    "1" => Ok(1)
+    "2" => Ok(2)
+    _ => Err(ParseError.NotADigit { text: s })
+  }
+}
+
+// `?` returns the error from `sum` if there is one.
+fn sum(a: string, b: string) -> Result<int, ParseError> {
+  let x = parseDigit(a)?
+  let y = parseDigit(b)?
+  return Ok(x + y)
+}
+
+fn show(r: Result<int, ParseError>) -> string {
+  return match r {
+    Ok(n) => "ok ${n}"
+    Err(ParseError.Empty) => "error: empty"
+    Err(ParseError.NotADigit { text }) => "error: not a digit: ${text}"
+  }
+}
+
+fn contact(u: User) -> string {
+  return u.email ?? "(no email)"
+}
+
+// On an optional, `?` returns `none`.
+fn managerName(u: User) -> string? {
+  let m = u.manager?
+  return m.name
+}
+
+fn main() uses io {
+  io.println(show(sum("1", "2")))
+  io.println(show(sum("1", "")))
+  io.println(show(sum("x", "2")))
+
+  let boss = User { name: "Grace", email: "grace@example.com", manager: none }
+  let dev = User { name: "Linus", email: none, manager: boss }
+  io.println(contact(boss))
+  io.println(contact(dev))
+  io.println(managerName(dev) ?? "(no manager)")
+  io.println(managerName(boss) ?? "(no manager)")
+
+  let label = match dev.email {
+    none => "no email on file"
+    e => "email: ${e}"
+  }
+  io.println(label)
+
+  // Branches mixing a value and `none` make an optional.
+  let nickname = if dev.name == "Linus" { "penguin" } else { none }
+  io.println("nickname: ${nickname ?? "-"}")
+}

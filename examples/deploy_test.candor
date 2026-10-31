@@ -1,0 +1,15 @@
+module deploy
+
+test "the release's output streams through" {
+  exec.script("ssh", [exec.out("unpacking"), exec.err("warning: old key"), exec.out("done")], 0)
+  assert release("web1", "site.tar.gz", (line) => io.println(line)) == Ok(1)
+  assert io.output() == "unpacking\n! warning: old key\ndone\n"
+  let cmd = exec.ran()[0] ?? exec.command("", [])
+  assert cmd.args == ["web1", "./release.sh"] && cmd.stdin == .File { path: "site.tar.gz" }
+}
+
+test "a failing release and a missing ssh" {
+  assert release("web1", "x.tar", (line) => {}) == Err("ssh: program not found")
+  exec.script("ssh", [exec.err("permission denied")], 255)
+  assert release("web1", "x.tar", (line) => {}) == Err("release.sh on web1 exited 255")
+}

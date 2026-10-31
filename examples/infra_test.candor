@@ -1,0 +1,26 @@
+module infra
+
+test "mail is set up" {
+  net.setMx("example.org", [net.Mx { host: "mx2.example.org", priority: 20 }, net.Mx { host: "mx1.example.org", priority: 10 }])
+  net.setRecords("example.org", .Txt, ["google-site-verification=x", "v=spf1 include:_spf.example.org -all"])
+  assert mail("example.org") == [
+    Check { name: "mx", ok: true, detail: "20 mx2.example.org, 10 mx1.example.org" },
+    Check { name: "spf", ok: true, detail: "v=spf1 include:_spf.example.org -all" },
+  ]
+}
+
+test "nothing set up" {
+  assert mail("nowhere.no") == [
+    Check { name: "mx", ok: false, detail: "nowhere.no: not found" },
+    Check { name: "spf", ok: false, detail: "nowhere.no: not found" },
+  ]
+}
+
+test "the web port answers, refuses, or times out" {
+  net.setReachable("example.org", 443, 35)
+  assert web("example.org") == Check { name: "https", ok: true, detail: "35 ms" }
+  assert web("closed.no") == Check { name: "https", ok: false, detail: "connection refused" }
+  net.setReachable("slow.no", 443, 10_000)
+  assert web("slow.no") == Check { name: "https", ok: false, detail: "timed out" }
+  assert clock.now() == 3_035
+}

@@ -1,0 +1,4 @@
+module lostUpdate
+
+// Fails on purpose, in some task orders only: each task reads, then writes, so two can read the
+// same value and one update is lost. `add` would be the fix.

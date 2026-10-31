@@ -1,0 +1,23 @@
+module workers
+
+test "two workers share four pages" {
+  let (counts, fetched) = countWords(site().keys(), 2)
+  assert fetched == 4
+  assert counts["cat"] == 3
+  assert clock.now() == 200
+}
+
+test "more workers, less time" {
+  countWords(site().keys(), 4)
+  assert clock.now() == 100
+}
+
+test "every ticket once" {
+  // Twenty tasks at once, in a seeded order: none gets a number twice, none is skipped.
+  assert tickets(20) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+}
+
+test "both at once" {
+  assert tasks.both(() => fetch("/blog"), () => fetch("/about")) == ("a blue mat", "the cat is a russian blue")
+  assert clock.now() == 100
+}

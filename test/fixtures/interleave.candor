@@ -1,0 +1,8 @@
+module interleave
+
+// Fails on purpose: the failure shows the order the tasks ran in, which the seed decides.
+
+fn say(name: string) uses io {
+  io.print(name)
+  io.print(name)
+}

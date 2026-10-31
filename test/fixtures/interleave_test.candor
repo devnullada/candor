@@ -1,0 +1,6 @@
+module interleave
+
+test "order" {
+  tasks.all(["a", "b", "c", "d"], (n) => say(n))
+  assert io.output() == ""
+}

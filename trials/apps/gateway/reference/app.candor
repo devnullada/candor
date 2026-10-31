@@ -1,0 +1,214 @@
+module gateway
+
+// The reference for trial app `gateway`: a rate limiter with a sliding window per key.
+
+import "http"
+import "json"
+
+struct Hit {
+  at: int
+  cost: int
+}
+
+struct Key {
+  limit: int?
+  window: int?
+  // Allowed checks, oldest first.
+  hits: List<Hit>
+  checked: bool
+}
+
+struct Board {
+  keys: Map<string, Key>
+  allowed: int
+  denied: int
+}
+
+struct Defaults {
+  limit: int
+  window: int
+}
+
+enum Outcome {
+  Allowed { remaining: int }
+  Denied { remaining: int, retryAfter: int }
+  TooBig { limit: int }
+}
+
+struct CheckBody {
+  key: string?
+  cost: int?
+}
+impl Json for CheckBody
+
+struct LimitBody {
+  limit: int
+  window: int
+}
+impl Json for LimitBody
+
+struct Allowed {
+  allowed: bool
+  remaining: int
+}
+impl Json for Allowed
+
+struct Denied {
+  allowed: bool
+  remaining: int
+  retryAfter: int
+}
+impl Json for Denied
+
+struct LimitView {
+  key: string
+  limit: int
+  window: int
+}
+impl Json for LimitView
+
+struct Stats {
+  keys: int
+  allowed: int
+  denied: int
+}
+impl Json for Stats
+
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+fn keyIn(b: Board, name: string) -> Key {
+  return b.keys[name] ?? Key { limit: none, window: none, hits: [], checked: false }
+}
+
+fn withKey(b: Board, name: string, k: Key) -> Board {
+  let mut keys = b.keys
+  keys[name] = k
+  return Board { ...b, keys }
+}
+
+fn check(b: Board, d: Defaults, name: string, cost: int, now: int) -> (Board, Outcome) {
+  let k = keyIn(b, name)
+  let limit = k.limit ?? d.limit
+  let window = k.window ?? d.window
+  if cost > limit {
+    return (b, Outcome.TooBig { limit })
+  }
+  let live = k.hits.filter((h) => now - h.at < window)
+  let mut used = 0
+  for h in live {
+    used += h.cost
+  }
+  if used + cost <= limit {
+    let mut hits = live
+    hits.push(Hit { at: now, cost })
+    let next = withKey(b, name, Key { ...k, hits, checked: true })
+    return (Board { ...next, allowed: b.allowed + 1 }, Outcome.Allowed { remaining: limit - used - cost })
+  }
+  // The soonest moment enough of the oldest hits have aged out.
+  let mut freed = 0
+  let mut wait = window
+  for h in live {
+    freed += h.cost
+    if used - freed + cost <= limit {
+      wait = h.at + window - now
+      break
+    }
+  }
+  let next = withKey(b, name, Key { ...k, hits: live, checked: true })
+  return (Board { ...next, denied: b.denied + 1 }, Outcome.Denied { remaining: limit - used, retryAfter: if wait < 1 { 1 } else { wait } })
+}
+
+fn setLimit(b: Board, name: string, body: LimitBody) -> Board {
+  return withKey(b, name, Key { ...keyIn(b, name), limit: body.limit, window: body.window })
+}
+
+fn limitView(b: Board, d: Defaults, name: string) -> LimitView {
+  let k = keyIn(b, name)
+  return LimitView { key: name, limit: k.limit ?? d.limit, window: k.window ?? d.window }
+}
+
+fn stats(b: Board) -> Stats {
+  return Stats { keys: b.keys.values().filter((k) => k.checked).length(), allowed: b.allowed, denied: b.denied }
+}
+
+// The service.
+
+fn handle(req: http.Request, board: Mutex<Board>, d: Defaults) -> http.Response uses clock {
+  return match route(req, board, d) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+fn route(req: http.Request, board: Mutex<Board>, d: Defaults) -> Result<http.Response, http.Response> uses clock {
+  if http.route(req, "/check") != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/check takes POST"))
+    }
+    let body = readBody<CheckBody>(req.body)?
+    let name = body.key ?? ""
+    let cost = body.cost ?? 1
+    if name.isEmpty() {
+      return Err(problem(400, "`key` is required"))
+    }
+    if cost < 1 {
+      return Err(problem(400, "`cost` is 1 or more"))
+    }
+    let now = clock.now()
+    return match board.updateWith((b) => check(b, d, name, cost, now)) {
+      Outcome.Allowed { remaining } => Ok(http.jsonResponse(200, Allowed { allowed: true, remaining })),
+      Outcome.Denied { remaining, retryAfter } => Ok(http.jsonResponse(429, Denied { allowed: false, remaining, retryAfter })),
+      Outcome.TooBig { limit } => Err(problem(400, "a cost of ${cost} can never fit a limit of ${limit}")),
+    }
+  }
+  let one = http.route(req, "/limits/{key}")
+  if one != none {
+    let name = one["key"] ?? ""
+    if req.method == "GET" {
+      return Ok(http.jsonResponse(200, limitView(board.get(), d, name)))
+    }
+    if req.method != "PUT" {
+      return Err(problem(405, "/limits/{key} takes GET and PUT"))
+    }
+    let body = readBody<LimitBody>(req.body)?
+    if body.limit < 1 || body.window < 1 {
+      return Err(problem(400, "`limit` and `window` are 1 or more"))
+    }
+    board.update((b) => setLimit(b, name, body))
+    return Ok(http.jsonResponse(200, LimitView { key: name, limit: body.limit, window: body.window }))
+  }
+  if http.route(req, "/stats") != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/stats takes GET"))
+    }
+    return Ok(http.jsonResponse(200, stats(board.get())))
+  }
+  return Err(problem(404, "no route ${req.method} ${req.path}"))
+}
+
+fn readBody<T: Json>(text: string) -> Result<T, http.Response> {
+  return match json.decode<T>(text) {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(400, "bad body: ${e}")),
+  }
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+fn main() uses io, env, http, tasks, clock {
+  let port = env.get("PORT") ?? "8080"
+  let d = Defaults { limit: (env.get("LIMIT") ?? "10").toInt() ?? 10, window: (env.get("WINDOW") ?? "1000").toInt() ?? 1000 }
+  let served = tasks.scope((s) => {
+    let board = s.mutex(Board { keys: [:], allowed: 0, denied: 0 })
+    return http.serve("127.0.0.1:${port}", (req) => handle(req, board, d))
+  })
+  match served {
+    Ok() => {},
+    Err(message) => io.println("can't serve: ${message}"),
+  }
+}

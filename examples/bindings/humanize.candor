@@ -1,0 +1,18 @@
+module humanize
+
+// A third-party Go package, bound at the version this was written against. Drafted with
+// `candor bind github.com/dustin/go-humanize@v1.0.1`, then vetted: these are all pure, so
+// `unvetted` came off, and the rest of the draft was deleted.
+
+pub extern "github.com/dustin/go-humanize@v1.0.1" {
+  // Bytes produces a human readable representation of an SI size.
+  fn Bytes(s: int) -> string as bytes
+  // Comma produces a string form of the given number in base 10 with commas after every three
+  // orders of magnitude.
+  fn Comma(v: int) -> string as comma
+  // Ordinal gives you the input number in a rank/ordinal format.
+  fn Ordinal(x: int) -> string as ordinal
+  // ParseBytes parses a string representation of bytes into the number of bytes it represents.
+  fn ParseBytes(s: string) -> Result<int, GoError> as parseBytes
+  let KByte: int as kByte
+}

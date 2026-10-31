@@ -1,0 +1,106 @@
+module sql
+
+// A database, SQLite: `sql.open("todos.db")` once, then `sql.exec`, `sql.insert`,
+// `sql.query<T>` and `sql.queryOne<T>`, with `uses sql`. In a test the database is SQLite in memory, fresh for every
+// test, so tests run the real SQL; `sql.open` there leaves it as it is. A second file is
+// `sql.attach`ed, and its tables named `name.table`.
+//
+// A query is a string literal, and each `${...}` in it is a parameter, sent apart from the text:
+// `sql.exec("DELETE FROM todos WHERE id = ${id}")`. Parameters are int, string, bool, float, Bytes
+// (a BLOB), or an optional of those (none is NULL; so is `${none}`).
+//
+// Queries are checked when the program compiles, against the tables its own migrations make
+// (the CREATE TABLE and ALTER TABLE in its `sql.exec` calls): tables, columns, the types of the
+// `${...}` values, and the row type against what is selected, joins, aliases and upserts
+// (`excluded.col`) too. A count is an int; a `sum`, `max` or `avg` is NULL over no rows, so it
+// is read into a `T?` field or given a default, `coalesce(sum(x), 0)`; `CAST(x AS INTEGER)` names
+// the type of an expression the check doesn't know. Subqueries, UNION, CASE, RETURNING and WITH
+// are checked too, and fts5 and rtree tables, rowid, row values, window functions, `sqlite_schema` and
+// `pragma_user_version`; a recursive WITH and table-valued functions aren't, and `candor check` notes them. Rows come back as a type with `impl Row`, derived, whose
+// fields are the columns by name; `int`, `string`, `bool`, `float` and `Bytes` read a query of
+// one column. A BLOB column is read as Bytes, and TEXT as a string: the check refuses one for the
+// other.
+
+// A query, written as a string literal where one is expected. Its `${...}` are parameters.
+pub struct Query {
+  text: string
+}
+
+// What went wrong, as the database says it.
+pub struct Error {
+  pub message: string
+}
+
+impl Show for Error {
+  fn toString(self) -> string {
+    return self.message
+  }
+}
+
+// Having `sql` is the permission; the database is the runtime's.
+effect sql {
+  extern "modernc.org/sqlite@v1.60.1" {}
+}
+
+fake sql {}
+
+// Opens the SQLite database at `source`, a file (made if missing) or ":memory:".
+pub fn open(source: string) -> Result<void, Error> uses sql {
+  // The compiler gives these their bodies (`stdBody` in emit-go).
+  return Err(Error { message: source })
+}
+
+// Registers `f` as the SQL function `name`, so queries, triggers and indexes can call it:
+// `sql.function("strip_html", html.text)?` before `sql.open` (in a test, before the first query),
+// since SQLite gives a function only to a database opened after it. `name` is a string literal
+// and `f` a named function without `uses`, whose parameters and result are int, float, string,
+// bool, Bytes or a `T?` of one (none is NULL); its result may be a `Result<T, string>`, whose
+// `Err` fails the statement with that message. SQLite may call it anywhere, so it computes and
+// nothing more. The schema check knows it: how many arguments it takes, and what it gives.
+// A name SQLite has already (`lower`) can't be taken.
+pub fn function<F>(name: string, f: F) -> Result<void, Error> uses sql {
+  // The compiler writes `f`'s side of each call (`sqlFunctions` in emit-go).
+  return Err(Error { message: name })
+}
+
+// Attaches the SQLite database at `source` as `name`, after `sql.open`, so one program keeps
+// tables in two files: `sql.attach("data/vault.db", "vault")`. Its migrations and queries name
+// those tables `vault.secrets`; a join may read both files. In a test it attaches a fresh
+// database in memory. Not inside a transaction. The same file as the same name again is Ok and
+// changes nothing, so a test can start the app twice and see what the first start left; the
+// name given another file is an `Err`.
+pub fn attach(source: string, name: string) -> Result<void, Error> uses sql {
+  return Err(Error { message: source + name })
+}
+
+// Runs `q` and gives how many rows it changed.
+pub fn exec(q: Query) -> Result<int, Error> uses sql {
+  return Err(Error { message: q.text })
+}
+
+// Runs an INSERT and gives the id of the row it added.
+pub fn insert(q: Query) -> Result<int, Error> uses sql {
+  return Err(Error { message: q.text })
+}
+
+// Runs `q` and reads its rows: `sql.query<Todo>("SELECT id, title, done FROM todos")`.
+pub fn query<T: Row>(q: Query) -> Result<List<T>, Error> uses sql {
+  return Err(Error { message: q.text })
+}
+
+// Runs `q` and reads its one row, or none if there is no row; more than one is an `Err`:
+// `sql.queryOne<Todo>("SELECT id, title, done FROM todos WHERE id = ${id}")`. For the first of
+// many, `query(...)` with `.first()`.
+pub fn queryOne<T: Row>(q: Query) -> Result<T?, Error> uses sql {
+  return Err(Error { message: q.text })
+}
+
+// Runs `f` in a transaction: `Ok` commits, and `Err`, a crash or a cancel rolls back. A failed
+// BEGIN or COMMIT gives `Err(wrap(e))`; `(e) => e` when `E` is `Error`. Inside another
+// transaction it is a savepoint, whose `Err` rolls back only its own part. Other tasks' queries
+// wait for it; tasks `f` spawns share it.
+//
+//   return sql.transaction(() => { ... }, (e) => BankError.Db { error: e })
+pub fn transaction<T, E>(f: fn() -> Result<T, E>, wrap: fn(Error) -> E) -> Result<T, E> uses sql, f {
+  return Err(wrap(Error { message: "" }))
+}

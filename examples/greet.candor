@@ -1,0 +1,11 @@
+module greet
+
+// `greet` needs io, so anyone calling it must declare io too.
+fn greet(name: string) uses io {
+  io.println(name)
+}
+
+fn main() uses io {
+  let who = "Hello, Ada"
+  greet(who)
+}

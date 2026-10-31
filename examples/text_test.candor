@@ -1,0 +1,44 @@
+module text
+
+test "length counts code points, byteLength counts bytes" {
+  assert "héllo".length() == 5
+  assert "héllo".byteLength() == 6
+  assert "👋".length() == 1 && "👋".byteLength() == 4
+  assert "".isEmpty() && !" ".isEmpty()
+}
+
+test "chars, indexOf and slice count the same way" {
+  let s = "héllo"
+  assert s.chars() == ['h', 'é', 'l', 'l', 'o']
+  assert s.chars()[1] == 'é'
+  assert s.chars().join("") == s
+  assert s.indexOf("llo") == 2
+  assert s.indexOf("x") == none
+  assert s.slice(1, 3) == "él"
+  assert s.slice(3, 100) == "lo"
+  assert s.slice(3, 1) == ""
+}
+
+test "a char is one code point" {
+  let digits = "a1b22".chars().filter((c) => c.isDigit())
+  assert digits == ['1', '2', '2']
+  assert 'a' < 'b' && 'é'.code() == 233
+  assert "${'x'}y" == "xy"
+}
+
+test "search and change" {
+  assert "wörld".contains("ör") && "wörld".startsWith("w") && "wörld".endsWith("ld")
+  assert "  x  ".trim() == "x"
+  assert "Ab".toUpperCase() == "AB" && "Ab".toLowerCase() == "ab"
+  assert "a,b,,c".split(",") == ["a", "b", "", "c"]
+  assert "one\ntwo\r\n".lines() == ["one", "two"]
+  assert "aaa".replaceAll("a", "b") == "bbb"
+  assert "ab".repeat(0) == ""
+  assert "7".padStart(3, "0") == "007"
+}
+
+test "toInt reads a decimal int, or none" {
+  assert "42".toInt() == 42 && "-7".toInt() == -7
+  assert "4 2".toInt() == none && "".toInt() == none
+  assert "9223372036854775808".toInt() == none
+}

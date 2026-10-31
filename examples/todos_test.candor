@@ -1,0 +1,40 @@
+module todos
+
+// A request to `handle`.
+fn send(method: string, path: string, body: string) -> http.Response uses sql {
+  return handle(request(method, path, body))
+}
+
+test "a todo is added, changed and listed" {
+  assert migrate() == Ok()
+  assert send("POST", "/todos", """{"title": " milk "}""") == http.jsonResponse(201, Todo { id: 1, title: "milk", done: false })
+  assert send("PATCH", "/todos/1", """{"done": true}""").status == 200
+  assert send("GET", "/todos", "").body == """[{"id":1,"title":"milk","done":true}]"""
+}
+
+test "missing todos are 404" {
+  assert migrate() == Ok()
+  assert send("GET", "/todos/9", "").status == 404
+  assert send("GET", "/todos/x", "").status == 404
+  assert send("DELETE", "/todos/9", "").status == 404
+  assert send("GET", "/nope", "").status == 404
+}
+
+test "bad bodies are 400" {
+  assert migrate() == Ok()
+  assert send("POST", "/todos", "{").body == """{"error":"bad body: $: not JSON: it ends too soon"}"""
+  assert send("POST", "/todos", """{"title": "  "}""").status == 400
+  send("POST", "/todos", """{"title": "a"}""")
+  assert send("PATCH", "/todos/1", """{"done": "yes"}""").body == """{"error":"bad body: $.done: expected true or false, found \"yes\""}"""
+  assert send("PATCH", "/todos/1", """{"don": true}""").body == """{"error":"bad body: $.don: unknown field; expected one of \"title\", \"done\""}"""
+}
+
+test "a database error is 500" {
+  // No `migrate()`: there is no table.
+  assert send("GET", "/todos", "").status == 500
+}
+
+test "the wrong method is 405" {
+  assert migrate() == Ok()
+  assert send("PUT", "/todos", "").status == 405
+}

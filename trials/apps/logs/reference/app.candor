@@ -1,0 +1,232 @@
+module logs
+
+// The log analyser of trials/apps/logs/spec.md: an access log on stdin, a report on stdout.
+
+struct Options {
+  status: string?
+  since: string?
+  by: string
+  top: int
+}
+
+struct Entry {
+  at: string
+  method: string
+  path: string
+  status: int
+  ms: int
+}
+
+struct Group {
+  key: string
+  count: int
+  total: int
+}
+
+fn isDigits(s: string) -> bool {
+  return !s.isEmpty() && s.chars().all((c) => c.isDigit())
+}
+
+// `YYYY-MM-DDTHH:MM:SSZ`, digits where the letters are.
+fn isTimestamp(s: string) -> bool {
+  let shape = "dddd-dd-ddTdd:dd:ddZ".chars()
+  let cs = s.chars()
+  if cs.length() != shape.length() {
+    return false
+  }
+  for (i, want) in shape.enumerated() {
+    let c = cs[i] ?? ' '
+    if want == 'd' {
+      if !c.isDigit() {
+        return false
+      }
+    } else if c != want {
+      return false
+    }
+  }
+  return true
+}
+
+fn isStatusFilter(v: string) -> bool {
+  if v.length() != 3 {
+    return false
+  }
+  if v.endsWith("xx") {
+    return "12345".contains(v.slice(0, 1))
+  }
+  let n = v.toInt() ?? 0
+  return isDigits(v) && n >= 100 && n <= 599
+}
+
+fn passesStatus(filter: string, status: int) -> bool {
+  if filter.endsWith("xx") {
+    return status.toString().slice(0, 1) == filter.slice(0, 1)
+  }
+  return status.toString() == filter
+}
+
+fn parseOptions(args: List<string>) -> Result<Options, string> {
+  let mut opts = Options { status: none, since: none, by: "path", top: 10 }
+  let mut seen: List<string> = []
+  let mut i = 0
+  while i < args.length() {
+    let flag = args[i] ?? ""
+    if !["--status", "--since", "--by", "--top"].contains(flag) {
+      return Err("error: unknown argument `${flag}`")
+    }
+    if seen.contains(flag) {
+      return Err("error: ${flag} given twice")
+    }
+    seen.push(flag)
+    let value = args[i + 1]
+    if value == none {
+      return Err("error: ${flag} needs a value")
+    }
+    if flag == "--status" {
+      if !isStatusFilter(value) {
+        return Err("error: --status wants 1xx to 5xx or a status from 100 to 599, not `${value}`")
+      }
+      opts = Options { ...opts, status: value }
+    } else if flag == "--since" {
+      if !isTimestamp(value) {
+        return Err("error: --since wants YYYY-MM-DDTHH:MM:SSZ, not `${value}`")
+      }
+      opts = Options { ...opts, since: value }
+    } else if flag == "--by" {
+      if !["path", "status", "method", "minute"].contains(value) {
+        return Err("error: --by wants path, status, method or minute, not `${value}`")
+      }
+      opts = Options { ...opts, by: value }
+    } else {
+      let n = value.toInt() ?? 0
+      if !isDigits(value) || n < 1 {
+        return Err("error: --top wants a number from 1, not `${value}`")
+      }
+      opts = Options { ...opts, top: n }
+    }
+    i += 2
+  }
+  return Ok(opts)
+}
+
+fn parseLine(line: string) -> Entry? {
+  let parts = line.split(" ")
+  if parts.length() != 5 {
+    return none
+  }
+  let at = parts[0] ?? ""
+  let method = parts[1] ?? ""
+  let path = parts[2] ?? ""
+  let status = parts[3] ?? ""
+  let latency = parts[4] ?? ""
+  if !isTimestamp(at) || !["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method) || !path.startsWith("/") {
+    return none
+  }
+  let code = status.toInt() ?? 0
+  if !isDigits(status) || code < 100 || code > 599 {
+    return none
+  }
+  if !latency.endsWith("ms") {
+    return none
+  }
+  let digits = latency.slice(0, latency.length() - 2)
+  if !isDigits(digits) {
+    return none
+  }
+  return Entry { at, method, path, status: code, ms: digits.toInt() ?? 0 }
+}
+
+fn normalPath(path: string) -> string {
+  return path.split("/").map((p) => if isDigits(p) { "{id}" } else { p }).join("/")
+}
+
+fn keyOf(by: string, e: Entry) -> string {
+  if by == "status" {
+    return e.status.toString()
+  } else if by == "method" {
+    return e.method
+  } else if by == "minute" {
+    return e.at.slice(0, 16)
+  }
+  return normalPath(e.path)
+}
+
+fn plural(by: string) -> string {
+  if by == "status" {
+    return "statuses"
+  }
+  return "${by}s"
+}
+
+// num / den rounded half up, for non-negative numbers.
+fn rounded(num: int, den: int) -> int {
+  return (2 * num + den) / (2 * den)
+}
+
+// Nearest rank: the item at ceil(k * n / 100), from 1.
+fn percentile(sorted: List<int>, k: int) -> int {
+  let n = sorted.length()
+  return sorted[(k * n + 99) / 100 - 1] ?? 0
+}
+
+fn report(entries: List<Entry>, malformed: int, opts: Options) -> string {
+  let picked = entries.filter((e) => (opts.status == none || passesStatus(opts.status, e.status)) && (opts.since == none || e.at >= opts.since))
+  let n = picked.length()
+  let mut out = "requests: ${n}\nmalformed: ${malformed}\n"
+  if n == 0 {
+    return out
+  }
+  let mut classes: List<string> = []
+  for c in 1..6 {
+    let count = picked.filter((e) => e.status / 100 == c).length()
+    if count > 0 {
+      classes.push("${c}xx ${count}")
+    }
+  }
+  let errors = picked.filter((e) => e.status >= 500).length()
+  let permille = rounded(errors * 1000, n)
+  let ms = picked.map((e) => e.ms).sorted()
+  out = out + "status: ${classes.join(", ")}\n"
+  out = out + "errors: ${permille / 10}.${permille % 10}%\n"
+  out = out + "latency: p50 ${percentile(ms, 50)}ms, p95 ${percentile(ms, 95)}ms, max ${ms.last() ?? 0}ms\n"
+  let mut groups: Map<string, Group> = [:]
+  for e in picked {
+    let key = keyOf(opts.by, e)
+    let g = groups[key] ?? Group { key, count: 0, total: 0 }
+    groups[key] = Group { ...g, count: g.count + 1, total: g.total + e.ms }
+  }
+  out = out + "top ${plural(opts.by)}:\n"
+  for (i, g) in groups.values().sortedBy((g) => (-g.count, g.key)).enumerated() {
+    if i >= opts.top {
+      break
+    }
+    out = out + "  ${g.count}  avg ${rounded(g.total, g.count)}ms  ${g.key}\n"
+  }
+  return out
+}
+
+fn main() -> Result<void, string> uses io, env {
+  let opts = parseOptions(env.args())?
+  let mut entries: List<Entry> = []
+  let mut malformed = 0
+  let mut number = 0
+  while true {
+    let line = io.readLine()
+    if line == none {
+      break
+    }
+    number += 1
+    if line.trim().isEmpty() {
+      continue
+    }
+    let entry = parseLine(line)
+    if entry == none {
+      malformed += 1
+      io.eprintln("warning: line ${number}: malformed")
+    } else {
+      entries.push(entry)
+    }
+  }
+  io.print(report(entries, malformed, opts))
+  return Ok()
+}

@@ -1,0 +1,147 @@
+module bytes
+
+// Making `Bytes`, the built-in type for bytes: from a list of ints, from hex, from base64.
+// `s.toBytes()` gives a string's (UTF-8) bytes; `b.toText()`, `b.toHex()` and `b.toBase64()` go
+// back. Bytes are never changed once made, like strings, and a byte is an `int` 0 to 255.
+//
+//   bytes.fromList([137, 80, 78, 71])   // the start of a PNG
+//   bytes.fromHex("cafe")?              // none unless it is hex, two digits a byte
+//   bytes.fromBase64(text)?             // standard or URL form, padded or not
+//
+// Text in a charset other than UTF-8: `bytes.decode(b, "windows-1251")` reads it and
+// `bytes.encode(s, "iso-8859-1")` writes it. Charsets go by the labels browsers know (the WHATWG
+// Encoding Standard), in any case: "utf-8", "windows-1252", "latin1", "koi8-r", "shift_jis",
+// "gbk", "big5", "euc-kr", "utf-16le", ... So a `charset=` from a Content-Type header or an HTML
+// `<meta>` goes in as it came.
+//
+//   let text = bytes.decode(res.body.toBytes(), "windows-1251") ?? res.body
+//
+// And gzip, for a `.gz` file or a body: `bytes.gzip(b)`, `bytes.gunzip(b)`. The http client
+// un-gzips bodies itself, and `serve` gzips them, so a handler needs neither. A zip archive's
+// files: `bytes.unzip(b, maxBytes)`.
+//
+// Readers and writers (at the end): `bytes.collect`, `bytes.reading`, and over any reader
+// `readAll`, `readLines` and `copy`.
+
+// The bytes `xs` lists, in order. A number outside 0 to 255 panics: check first if they come
+// from outside.
+pub fn fromList(xs: List<int>) -> Bytes {
+  // The compiler gives these their bodies (`stdBody` in emit-go).
+  return "".toBytes()
+}
+
+// Hex, two digits a byte, either case; none if it isn't (an odd length, a letter past `f`).
+pub fn fromHex(s: string) -> Bytes? {
+  return none
+}
+
+// Base64: the standard form (`+`, `/`) or the URL form (`-`, `_`), padded with `=` or not;
+// none if it isn't.
+pub fn fromBase64(s: string) -> Bytes? {
+  return none
+}
+
+// `b` compressed with gzip.
+pub fn gzip(b: Bytes) -> Bytes {
+  return b
+}
+
+// `b` uncompressed from gzip; none if it isn't gzip, or is cut short. A large file can come
+// out many times its size: check what comes from outside.
+pub fn gunzip(b: Bytes) -> Bytes? {
+  return none
+}
+
+extern "./bytesgo" {
+  fn Decode(data: string, charset: string) -> string? as goDecode
+  fn Encode(s: string, charset: string) -> string? as goEncode
+  fn Name(charset: string) -> string as goName
+  fn Unzip(data: Bytes, max: int) -> Result<List<string>, GoError> as goUnzip
+}
+
+// A file from a zip archive: its name with any folders ("reports/a.xml"), its size and its
+// data, inflated.
+pub struct ZipEntry {
+  pub name: string
+  pub size: int
+  pub data: Bytes
+}
+
+// The files in a zip archive held in memory (an attachment, a body), in the archive's order,
+// folders left out: `bytes.unzip(b, 10_000_000)?`. `maxBytes` caps what all of them inflate to
+// together, since a small archive can inflate to gigabytes. Stored and deflate entries are read
+// and each is checked against its CRC-32. The `Err` says what's wrong: not a zip or cut short,
+// an entry encrypted or compressed some other way, a CRC that doesn't match, over `maxBytes`.
+pub fn unzip(b: Bytes, maxBytes: int) -> Result<List<ZipEntry>, string> {
+  let flat = goUnzip(b, maxBytes).mapErr((e) => e.message())?
+  let mut entries: List<ZipEntry> = []
+  let mut i = 0
+  while i + 1 < flat.length() {
+    let data = (flat[i + 1] ?? "").toBytes()
+    entries.push(ZipEntry { name: flat[i] ?? "", size: data.length(), data })
+    i = i + 2
+  }
+  return Ok(entries)
+}
+
+// `b` read as text in `encoding`; none for a charset it doesn't know. A byte the charset doesn't
+// allow is U+FFFD, as browsers read it. As browsers also do, "iso-8859-1", "latin1" and "ascii"
+// are read as "windows-1252", which only adds characters to them (the euro sign at 0x80, ...).
+pub fn decode(b: Bytes, encoding: string) -> string? {
+  return goDecode(b.toRawText(), encoding)
+}
+
+// `s` written in `encoding`; none for a charset it doesn't know, or when `s` has a character the
+// charset can't write (a euro sign in "koi8-r").
+pub fn encode(s: string, encoding: string) -> Bytes? {
+  return goEncode(s, encoding).map((raw) => raw.toBytes())
+}
+
+// The canonical name of a charset `decode` knows: "latin1" is "windows-1252", "UTF8" is "utf-8".
+// None for one it doesn't know.
+pub fn charset(name: string) -> string? {
+  let canonical = goName(name)
+  return if canonical == "" { none } else { canonical }
+}
+
+// Readers and writers are functions. A reader, `fn(int) -> Result<Bytes?, string>`, gives up
+// to `n` bytes a call (below 1, a buffer's worth) and `none` at the end; a writer,
+// `fn(Bytes) -> Result<void, string>`, takes the next piece. A function that takes one declares
+// `uses r` or `uses w`: it takes on what the one it's given does (`fs.reading`'s does `fs`,
+// these do nothing), and any function of the type is one (a hash, a count).
+//
+//   fn save(db: Db, w: fn(Bytes) -> Result<void, string>) -> Result<void, string> uses w { ... }
+//
+//   fs.writing("data.db", (w) => save(db, w))?
+//   let b = bytes.collect((w) => save(db, w))?          // in memory, and pure
+
+// What `f` writes to the writer it is given, once `f` gives `Ok`; `f`'s `Err` as it is. The
+// writer itself never fails.
+pub fn collect<E>(f: fn(fn(Bytes) -> Result<void, string>) -> Result<void, E>) -> Result<Bytes, E> uses f {
+  // The compiler gives these their bodies (`stdBody` in emit-go).
+  f((piece) => Ok())?
+  return Ok("".toBytes())
+}
+
+// Gives `f` a reader over `b`, and gives back what `f` does: `bytes.reading(b, (r) => load(r))`.
+pub fn reading<T, E>(b: Bytes, f: fn(fn(int) -> Result<Bytes?, string>) -> Result<T, E>) -> Result<T, E> uses f {
+  return f((n) => Ok(none))
+}
+
+// Everything `r` gives, to its end.
+pub fn readAll(r: fn(int) -> Result<Bytes?, string>) -> Result<Bytes, string> uses r {
+  return Err("")
+}
+
+// Reads `r` a line at a time, as `fold` does: `each` combines what it has so far with the next
+// line, without its line ending (`\n` or `\r\n`); a last line without one counts.
+//
+//   let errors = fs.reading("app.log", (r) => bytes.readLines(r, 0, (n, line) => if line.contains("ERROR") { n + 1 } else { n }))?
+pub fn readLines<A>(r: fn(int) -> Result<Bytes?, string>, start: A, each: fn(A, string) -> A) -> Result<A, string> uses r, each {
+  return Err("")
+}
+
+// Writes everything `r` gives to `w`, a piece at a time, and says how many bytes that was.
+pub fn copy(r: fn(int) -> Result<Bytes?, string>, w: fn(Bytes) -> Result<void, string>) -> Result<int, string> uses r, w {
+  return Err("")
+}

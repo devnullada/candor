@@ -1,0 +1,54 @@
+module crypto
+
+// Encryption at rest: AES-256-GCM to seal bytes under a key, argon2id to make that key from a
+// passphrase. For a password vault, a token store, a secret in a file.
+//
+//   let salt = random.bytes(16)                    // keep it beside the vault
+//   let key = crypto.deriveKey(passphrase, salt, crypto.Argon2 { time: 3, memoryKiB: 65_536, threads: 4 })
+//   let sealed = crypto.seal(key, secret.toBytes()) // uses random: a fresh nonce
+//   let back = crypto.open(key, sealed)?            // Err on a wrong key or changed bytes
+//
+// A key is 32 bytes, from `deriveKey` or `random.bytes(32)`; another length panics, and the
+// panic doesn't show the key. In a test, `random` is the seeded fake, so a sealed message is the
+// same in every run; `open` and `deriveKey` are the real thing, with no effect to fake.
+
+// cryptogo builds on golang.org/x/crypto/argon2, which the compiler requires (`compile.ts`).
+extern "./cryptogo" {
+  fn Seal(key: string, nonce: string, plain: string) -> string as goSeal
+  fn Open(key: string, sealed: string) -> Result<string, GoError> as goOpen
+  fn DeriveKey(passphrase: string, salt: string, time: int, memoryKiB: int, threads: int) -> string as goDeriveKey
+}
+
+// What argon2id costs: `time` passes over `memoryKiB` of memory, on `threads` threads. Higher is
+// slower for an attacker and for you. RFC 9106 suggests `time: 3, memoryKiB: 65_536, threads: 4`
+// (64 MiB); with less memory to spare, `time: 2, memoryKiB: 19_456, threads: 1`. Store them with
+// the salt: the same passphrase gives another key under other costs.
+pub struct Argon2 {
+  pub time: int
+  pub memoryKiB: int
+  pub threads: int
+}
+
+// `plain` encrypted and authenticated under `key`: a 12-byte nonce, fresh from `random`, then the
+// ciphertext, then a 16-byte tag. 28 bytes longer than `plain`.
+pub fn seal(key: Bytes, plain: Bytes) -> Bytes uses random {
+  let nonce = random.bytes(12)
+  return goSeal(key.toRawText(), nonce.toRawText(), plain.toRawText()).toBytes()
+}
+
+// What `seal` sealed, or an Err if `key` is the wrong one or a byte of `sealed` changed (the two
+// look alike): nothing of a tampered message comes back.
+pub fn open(key: Bytes, sealed: Bytes) -> Result<Bytes, string> {
+  return goOpen(key.toRawText(), sealed.toRawText()).map((plain) => plain.toBytes()).mapErr((e) => e.message())
+}
+
+// A 32-byte key from `passphrase`, by argon2id: the same passphrase, salt and costs give the same
+// key. `salt` is at least 8 random bytes (`random.bytes(16)`), one per vault, kept with it.
+pub fn deriveKey(passphrase: string, salt: Bytes, costs: Argon2) -> Bytes
+  requires salt.length() >= 8
+  requires costs.time >= 1 && costs.time <= 4_294_967_295
+  requires costs.threads >= 1 && costs.threads <= 255
+  requires costs.memoryKiB >= 8 * costs.threads && costs.memoryKiB <= 4_294_967_295
+{
+  return goDeriveKey(passphrase, salt.toRawText(), costs.time, costs.memoryKiB, costs.threads).toBytes()
+}

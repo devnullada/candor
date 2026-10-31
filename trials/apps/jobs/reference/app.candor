@@ -1,0 +1,313 @@
+module jobs
+
+// The reference for trial app `jobs`: hidden from agents, it checks the spec and the acceptance
+// tests.
+
+import "http"
+import "json"
+
+struct Job {
+  id: int
+  duration: int
+  fails: int
+  retries: int
+  timeout: int?
+  state: string
+  attempts: int
+  error: string?
+}
+
+// Everything the workers and requests share, under one lock.
+struct Board {
+  jobs: Map<int, Job>
+  next: int
+  running: int
+  maxRunning: int
+  closing: bool
+}
+
+struct View {
+  id: int
+  state: string
+  attempts: int
+  error: string?
+}
+impl Json(nulls) for View
+
+struct NewJob {
+  duration: int
+  fails: int?
+  retries: int?
+  timeout: int?
+}
+impl Json for NewJob
+
+struct Stats {
+  workers: int
+  running: int
+  maxRunning: int
+}
+impl Json for Stats
+
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+fn view(j: Job) -> View {
+  return View { id: j.id, state: j.state, attempts: j.attempts, error: j.error }
+}
+
+fn put(b: Board, j: Job) -> Board {
+  let mut jobs = b.jobs
+  jobs[j.id] = j
+  return Board { ...b, jobs }
+}
+
+// The board changes, each run under its lock.
+
+fn add(b: Board, n: NewJob) -> (Board, View?) {
+  if b.closing {
+    return (b, none)
+  }
+  let j = Job { id: b.next, duration: n.duration, fails: n.fails ?? 0, retries: n.retries ?? 0, timeout: n.timeout, state: "queued", attempts: 0, error: none }
+  return (Board { ...put(b, j), next: b.next + 1 }, view(j))
+}
+
+// A worker takes job `id` if it is still queued.
+fn start(b: Board, id: int) -> (Board, Job?) {
+  let j = b.jobs[id]
+  if j == none || j.state != "queued" {
+    return (b, none)
+  }
+  let running = Job { ...j, state: "running", attempts: j.attempts + 1 }
+  let now = b.running + 1
+  let max = if now > b.maxRunning { now } else { b.maxRunning }
+  return (Board { ...put(b, running), running: now, maxRunning: max }, running)
+}
+
+// An attempt ended with `outcome` ("" for success): the backoff before it queues again, or 0.
+fn finish(b: Board, id: int, outcome: string) -> (Board, int) {
+  let freed = Board { ...b, running: b.running - 1 }
+  let j = b.jobs[id]
+  if j == none || j.state != "running" {
+    return (freed, 0)
+  }
+  if outcome == "" {
+    return (put(freed, Job { ...j, state: "done" }), 0)
+  }
+  if j.attempts <= j.retries && !b.closing {
+    return (put(freed, Job { ...j, state: "retrying", error: outcome }), backoff(j.attempts))
+  }
+  return (put(freed, Job { ...j, state: "failed", error: outcome }), 0)
+}
+
+fn backoff(attempts: int) -> int {
+  let mut ms = 100
+  let mut k = 1
+  while k < attempts {
+    ms = ms * 2
+    k = k + 1
+  }
+  return ms
+}
+
+fn requeue(b: Board, id: int) -> (Board, bool) {
+  let j = b.jobs[id]
+  if j == none || j.state != "retrying" {
+    return (b, false)
+  }
+  return (put(b, Job { ...j, state: "queued" }), true)
+}
+
+// 200 and the job, 404 or 409.
+fn cancel(b: Board, id: int) -> (Board, (int, View?)) {
+  let j = b.jobs[id]
+  if j == none {
+    return (b, (404, none))
+  }
+  if j.state == "done" || j.state == "failed" || j.state == "cancelled" {
+    return (b, (409, view(j)))
+  }
+  let c = Job { ...j, state: "cancelled" }
+  return (put(b, c), (200, view(c)))
+}
+
+fn close(b: Board) -> Board {
+  let mut jobs = b.jobs
+  for (id, j) in b.jobs {
+    if j.state == "queued" || j.state == "retrying" {
+      jobs[id] = Job { ...j, state: "cancelled" }
+    }
+  }
+  return Board { ...b, jobs, closing: true }
+}
+
+fn isCancelled(b: Board, id: int) -> bool {
+  let j = b.jobs[id]
+  return j != none && j.state == "cancelled"
+}
+
+// The workers.
+
+fn worker(board: Mutex<Board>, queue: Channel<int>, s: Scope) uses clock, tasks {
+  while true {
+    let id = queue.recv()
+    if id == none {
+      return
+    }
+    let j = board.updateWith((b) => start(b, id))
+    if j != none {
+      let outcome = attempt(j, board)
+      let wait = board.updateWith((b) => finish(b, j.id, outcome))
+      if wait > 0 {
+        s.spawn(() => {
+          clock.sleep(wait)
+          if board.updateWith((b) => requeue(b, j.id)) {
+            queue.send(j.id)
+          }
+        })
+      }
+    }
+  }
+}
+
+// One attempt: "" if it succeeded, else its error, or "cancelled".
+fn attempt(j: Job, board: Mutex<Board>) -> string uses clock, tasks {
+  let limit = j.timeout ?? j.duration
+  let cut = limit < j.duration
+  return tasks.race([() => {
+    clock.sleep(if cut { limit } else { j.duration })
+    return if cut { "timeout" } else if j.attempts <= j.fails { "failed" } else { "" }
+  }, () => {
+    while !isCancelled(board.get(), j.id) {
+      clock.sleep(10)
+    }
+    return "cancelled"
+  }])
+}
+
+// The service.
+
+fn handle(req: http.Request, board: Mutex<Board>, queue: Channel<int>, workers: int) -> http.Response {
+  return match route(req, board, queue, workers) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+fn route(req: http.Request, board: Mutex<Board>, queue: Channel<int>, workers: int) -> Result<http.Response, http.Response> {
+  if http.route(req, "/jobs") != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/jobs takes POST"))
+    }
+    let n = checked(readBody<NewJob>(req.body)?)?
+    let added = board.updateWith((b) => add(b, n))
+    if added == none {
+      return Err(problem(503, "shutting down"))
+    }
+    queue.send(added.id)
+    return Ok(http.jsonResponse(201, added))
+  }
+  let one = http.route(req, "/jobs/{id}")
+  if one != none {
+    let id = idIn(one)?
+    return match req.method {
+      "GET" => {
+        let j = board.get().jobs[id]
+        if j == none {
+          return Err(problem(404, "no job ${id}"))
+        }
+        Ok(http.jsonResponse(200, view(j)))
+      },
+      "DELETE" => {
+        let (status, v) = board.updateWith((b) => cancel(b, id))
+        if v == none {
+          return Err(problem(404, "no job ${id}"))
+        }
+        if status == 409 {
+          return Err(problem(409, "job ${id} is already ${v.state}"))
+        }
+        Ok(http.jsonResponse(200, v))
+      },
+      _ => Err(problem(405, "/jobs/{id} takes GET and DELETE")),
+    }
+  }
+  if http.route(req, "/stats") != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/stats takes GET"))
+    }
+    let b = board.get()
+    return Ok(http.jsonResponse(200, Stats { workers, running: b.running, maxRunning: b.maxRunning }))
+  }
+  if http.route(req, "/shutdown") != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/shutdown takes POST"))
+    }
+    board.update((b) => close(b))
+    return Ok(http.textResponse(202, "{}"))
+  }
+  return Err(problem(404, "no route ${req.method} ${req.path}"))
+}
+
+fn checked(n: NewJob) -> Result<NewJob, http.Response> {
+  if n.duration < 0 || (n.fails ?? 0) < 0 || (n.retries ?? 0) < 0 || (n.timeout ?? 1) <= 0 {
+    return Err(problem(400, "durations and counts can't be negative, and a timeout is more than 0"))
+  }
+  return Ok(n)
+}
+
+fn idIn(params: Map<string, string>) -> Result<int, http.Response> {
+  let given = params["id"] ?? ""
+  return match given.toInt() {
+    none => Err(problem(404, "no job `${given}`")),
+    n => Ok(n),
+  }
+}
+
+fn readBody<T: Json>(text: string) -> Result<T, http.Response> {
+  return match json.decode<T>(text) {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(400, "bad body: ${e}")),
+  }
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+// Waits until a shutdown has been asked for and no attempt runs.
+fn drained(board: Mutex<Board>) uses clock {
+  while true {
+    let b = board.get()
+    if b.closing && b.running == 0 {
+      return
+    }
+    clock.sleep(10)
+  }
+}
+
+fn main() uses io, env, http, tasks, clock {
+  let port = env.get("PORT") ?? "8080"
+  let workers = (env.get("WORKERS") ?? "4").toInt() ?? 4
+  let served = tasks.scope((outer) => {
+    let board = outer.mutex(Board { jobs: [:], next: 1, running: 0, maxRunning: 0, closing: false })
+    // Draining wins the race, which cancels the server, the workers and the backoffs.
+    return tasks.race([() => tasks.scope((s) => {
+      let queue: Channel<int> = s.channel(100_000)
+      let mut n = 0
+      while n < workers {
+        s.spawn(() => worker(board, queue, s))
+        n = n + 1
+      }
+      return http.serve("127.0.0.1:${port}", (req) => handle(req, board, queue, workers))
+    }), () => {
+      drained(board)
+      return Ok()
+    }])
+  })
+  match served {
+    Ok() => {},
+    Err(message) => io.println("can't serve: ${message}"),
+  }
+}

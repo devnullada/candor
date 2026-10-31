@@ -1,0 +1,56 @@
+module mailcheck
+
+// Checks a mailbox end to end: logs in over IMAP, lists INBOX's newest 5 messages parsed, then
+// logs in over SMTP and sends one message to itself.
+//
+//   MAIL_USER=dev@example.org MAIL_PASSWORD=... candor run examples/mailcheck.candor
+//
+// IMAP_HOST and SMTP_HOST default to Zoho's EU servers (993 and 465); SMTP_PORT=587 for
+// STARTTLS. Use an app password.
+
+import "imap"
+import "mime"
+import "smtp"
+
+fn setting(name: string, fallback: string) -> string uses env {
+  return env.get(name) ?? fallback
+}
+
+fn main() -> Result<void, string> uses io, env, imap, smtp, random, clock {
+  let user = env.get("MAIL_USER") ?? ""
+  let password = env.get("MAIL_PASSWORD") ?? ""
+  if user == "" || password == "" {
+    return Err("set MAIL_USER and MAIL_PASSWORD (an app password)")
+  }
+  let imapAccount = imap.Account { host: setting("IMAP_HOST", "imap.zoho.eu"), port: 993, user, password }
+  let newest = imap.session(imapAccount, (s) => {
+    let sent = imap.folders(s)?.filter((f) => f.specialUse == .Sent).map((f) => f.name)
+    io.println("Sent folder: ${sent[0] ?? "(none marked)"}")
+    let inbox = imap.select(s, "INBOX")?
+    io.println("INBOX: ${inbox.count} messages, uidValidity ${inbox.uidValidity}")
+    return imap.fetch(s, (inbox.count - 4).max(1), inbox.count)
+  }).mapErr((e) => "imap: ${e}")?
+  for m in newest {
+    match mime.parse(m.source) {
+      Ok(msg) => {
+        let from = msg.from.map((a) => if a.name == "" { a.address } else { "${a.name} <${a.address}>" }) ?? "?"
+        io.println("  #${m.uid} ${from}: ${msg.subject ?? "(no subject)"} (${msg.attachments.length()} attachments)")
+      },
+      Err(e) => io.println("  #${m.uid} unreadable: ${e}"),
+    }
+  }
+
+  let port = setting("SMTP_PORT", "465").toInt() ?? 465
+  let smtpAccount = smtp.Account { host: setting("SMTP_HOST", "smtp.zoho.eu"), port, user, password }
+  smtp.verify(smtpAccount).mapErr((e) => "smtp: ${e}")?
+  io.println("SMTP login: ok")
+  let out = mime.compose(mime.Draft {
+    from: mime.Address { name: "Candor mailcheck", address: user },
+    to: [mime.Address { name: "", address: user }],
+    subject: "Candor mailcheck: å ø æ",
+    text: "Sent by examples/mailcheck.candor.",
+  })
+  smtp.send(smtpAccount, out).mapErr((e) => "smtp: ${e}")?
+  io.println("Sent ${out.messageId} to ${user}")
+  return Ok()
+}

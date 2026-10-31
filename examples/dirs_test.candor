@@ -1,0 +1,11 @@
+module dirs
+
+test "every folder, under the root" {
+  assert layout("/p", ["a", "b"]) == Ok()
+  assert dirs.folders() == ["/p/a", "/p/b"]
+}
+
+test "one failure is the result" {
+  dirs.refuse("/p/b")
+  assert layout("/p", ["a", "b", "c"]) == Err(DirError.Failed { path: "/p/b", message: "permission denied" })
+}

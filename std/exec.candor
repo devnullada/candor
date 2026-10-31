@@ -1,0 +1,515 @@
+module exec
+
+// Running a program, with `uses exec`. Build the command, then run it:
+//
+//   let cmd = exec.withStdinFile(exec.command("ssh", ["web1", "./release.sh"]), "site.tar.gz")
+//   let done = exec.run(cmd, 0, (n, line) => {
+//     send(line.text)              // as it comes: stream it on
+//     return n + 1
+//   })?
+//   if done.code != 0 { ... }
+//
+// `exec.run` folds over the output a line at a time while the program runs, stdout and stderr
+// both (`line.fromStderr` says which), and gives the exit code with what the fold made.
+// `exec.output(cmd)` waits and gives it all at once. For bytes: `exec.reading(cmd, (r) => ...)`
+// reads stdout with a reader, `exec.piping(cmd, (w) => ..., (r) => ...)` writes stdin as well. A program that fails is not an `Err`: its
+// exit code says so. `Err` is for one that can't start. Cancelling the task (say
+// `tasks.timeout`) kills the program, or stops it as `withStop` says; `withOwnGroup` makes that
+// reach what it started too.
+//
+// In a test no program runs: `exec.script(program, lines, code)` says what one prints and
+// exits with (`exec.scriptSlow` takes test time over it), and `exec.ran()` gives the commands
+// run so far, stdin included.
+
+// A program and how to run it: `exec.command(program, args)`, then `withDir`, `withEnv`,
+// `withStdin`, `withStdinText`, `withStdinFile`, `withArgv0`, `withOwnGroup` or `withStop`.
+pub struct Command {
+  pub program: string
+  pub args: List<string>
+  // The directory it runs in; none for the current one.
+  pub dir: string?
+  // Added to this program's own environment.
+  pub env: Map<string, string>
+  pub stdin: Stdin
+  // The name the program is told it was run as (argv[0]); none for `program`.
+  pub argv0: string?
+  // In a process group of its own, so a cancel reaches its children and Ctrl-C in the terminal
+  // doesn't. Not on Windows.
+  pub ownGroup: bool
+  // How a cancel stops it; none to kill it at once.
+  pub stop: Stop?
+}
+
+// A cancel sends `signal`, then kills the program if it is still running `graceMs` later.
+pub struct Stop {
+  pub signal: Signal
+  pub graceMs: int
+}
+
+// What the program reads on standard input.
+pub enum Stdin {
+  Nothing
+  Text { text: string }
+  Data { data: Bytes }
+  // Streamed from the file, so a large one never sits in memory.
+  File { path: string }
+}
+
+// One line of output: its text, and the line ending it had.
+pub struct Line {
+  pub text: string
+  pub fromStderr: bool
+  // "\n", "\r\n", or "" for a last line printed without one: `text + ending` is what was printed.
+  pub ending: string
+}
+
+// How a run ended: the exit code (-1 when it was killed) and what the fold made.
+pub struct Finished<A> {
+  pub code: int
+  pub value: A
+}
+
+// What `exec.output` gives: each stream as printed, and both together in the order the lines
+// came (Go's `CombinedOutput`, give or take two lines printed at the same moment).
+pub struct Output {
+  pub code: int
+  pub stdout: string
+  pub stderr: string
+  pub combined: string
+}
+
+// Why a program couldn't run.
+pub enum ExecError {
+  // No such program on the PATH, or at the path given.
+  NotFound { program: string }
+  // Anything else: no such directory, a stdin file missing, permission denied.
+  Failed { message: string }
+}
+
+impl Show for ExecError {
+  fn toString(self) -> string {
+    return match self {
+      .NotFound { program } => "${program}: program not found",
+      .Failed { message } => message,
+    }
+  }
+}
+
+// What the fake replies to a program with.
+struct Script {
+  program: string
+  lines: List<Line>
+  code: int
+  delayMs: int
+}
+
+// A process the fake is running: what's left to print.
+struct Playing {
+  lines: List<Line>
+  code: int
+  delayMs: int
+  // Piped: the rest of a stdout line a read didn't take, and the stderr lines passed over.
+  pending: Bytes?
+  stderr: string?
+}
+
+// Programs: having `exec` is the permission to run them, any of them.
+effect exec {
+  extern "./execgo" {
+    fn Start(ctx, program: string, argv0: string, args: List<string>, dir: string, env: List<string>, stdinKind: int, text: string, path: string, group: int, stopSignal: int, graceMs: int, piped: int) -> Result<int, GoError> as goStart
+    fn Next(ctx, id: int) -> string as goNext
+    fn Wait(id: int) -> int as goWait
+    fn ReadOut(ctx, id: int, n: int) -> string as goReadOut
+    fn WriteIn(id: int, data: string) -> string as goWriteIn
+    fn CloseIn(id: int) as goCloseIn
+    fn CloseOut(id: int) as goCloseOut
+    fn Refused(id: int) -> bool as goRefused
+    fn Stderr(id: int) -> string as goStderr
+  }
+
+  // Starts `cmd`: an id for `next` and `wait`. The steps under `exec.run`.
+  pub fn spawn(cmd: Command) -> Result<int, ExecError> {
+    let a = startArgs(cmd, false)
+    return goStart(cmd.program, cmd.argv0 ?? "", cmd.args, cmd.dir ?? "", a.env, a.stdinKind, a.text, a.path, a.group, a.stopSignal, a.graceMs, 0).mapErr((e) => execError(cmd, e))
+  }
+
+  // Starts `cmd` with its stdout read as bytes by `readOut` and its stderr kept for `stderrOf`;
+  // its stdin written by `writeIn` with `pipeIn`. The steps under `exec.reading` and `piping`.
+  pub fn spawnPiped(cmd: Command, pipeIn: bool) -> Result<int, ExecError> {
+    let a = startArgs(cmd, pipeIn)
+    return goStart(cmd.program, cmd.argv0 ?? "", cmd.args, cmd.dir ?? "", a.env, a.stdinKind, a.text, a.path, a.group, a.stopSignal, a.graceMs, 1).mapErr((e) => execError(cmd, e))
+  }
+
+  // Up to `n` bytes of the stdout of the process at `id`, waiting for them; none at its end.
+  pub fn readOut(id: int, n: int) -> Result<Bytes?, string> {
+    let got = goReadOut(id, n)
+    if got == "" {
+      return Ok(none)
+    }
+    if got.startsWith("e") {
+      return Err(got.slice(1))
+    }
+    // Bytes, not text: the string's characters may not be UTF-8.
+    let b = got.toBytes()
+    return Ok(b.slice(1, b.length()))
+  }
+
+  // Writes `data` to the stdin of the process at `id`. An `Err` once it stops reading.
+  pub fn writeIn(id: int, data: Bytes) -> Result<void, string> {
+    let why = goWriteIn(id, rawText(data))
+    return if why == "" { Ok() } else { Err(why) }
+  }
+
+  // Ends the stdin of the process at `id`: it reads its end.
+  pub fn closeIn(id: int) {
+    goCloseIn(id)
+  }
+
+  // Stops reading the stdout of the process at `id`.
+  pub fn closeOut(id: int) {
+    goCloseOut(id)
+  }
+
+  // Whether a write to the stdin of the process at `id` failed because it stopped reading.
+  pub fn refused(id: int) -> bool {
+    return goRefused(id)
+  }
+
+  // What the piped process at `id` printed on stderr, after `wait`.
+  pub fn stderrOf(id: int) -> string {
+    return goStderr(id)
+  }
+
+  // The next line the process at `id` printed, waiting for it; none once it has closed both
+  // streams.
+  pub fn next(id: int) -> Line? {
+    let line = goNext(id)
+    if line == "" {
+      return none
+    }
+    let text = line.slice(1)
+    let ending = if text.endsWith("\r\n") { "\r\n" } else if text.endsWith("\n") { "\n" } else { "" }
+    return Line { text: text.slice(0, text.length() - ending.length()), fromStderr: line.startsWith("e"), ending }
+  }
+
+  // Waits for the process at `id` to end: its exit code, -1 if it was killed.
+  pub fn wait(id: int) -> int {
+    return goWait(id)
+  }
+}
+
+// Plays what the test scripted; no program runs.
+fake exec {
+  let mut scripts: List<Script> = []
+  let mut commands: List<Command> = []
+  let mut playing: Map<int, Playing> = [:]
+
+  fn spawn(cmd: Command) -> Result<int, ExecError> {
+    commands.push(cmd)
+    for s in scripts {
+      if s.program == cmd.program {
+        let id = commands.length()
+        playing[id] = Playing { lines: s.lines, code: s.code, delayMs: s.delayMs }
+        return Ok(id)
+      }
+    }
+    return Err(ExecError.NotFound { program: cmd.program })
+  }
+
+  fn next(id: int) -> Line? uses clock {
+    let p = playing[id] ?? Playing { lines: [], code: -1, delayMs: 0 }
+    if p.delayMs > 0 {
+      clock.sleep(p.delayMs)
+    }
+    let line = p.lines[0]
+    playing[id] = Playing { ...p, lines: p.lines.slice(1) }
+    return line
+  }
+
+  fn wait(id: int) -> int {
+    return (playing[id] ?? Playing { lines: [], code: -1, delayMs: 0 }).code
+  }
+
+  fn spawnPiped(cmd: Command, pipeIn: bool) -> Result<int, ExecError> {
+    commands.push(if pipeIn { Command { ...cmd, stdin: .Data { data: "".toBytes() } } } else { cmd })
+    for s in scripts {
+      if s.program == cmd.program {
+        let id = commands.length()
+        playing[id] = Playing { lines: s.lines, code: s.code, delayMs: s.delayMs }
+        return Ok(id)
+      }
+    }
+    return Err(ExecError.NotFound { program: cmd.program })
+  }
+
+  // A scripted stdout line is a piece; stderr lines are kept for `stderrOf`.
+  fn readOut(id: int, n: int) -> Result<Bytes?, string> uses clock {
+    let p = playing[id] ?? Playing { lines: [], code: -1, delayMs: 0 }
+    let mut pending = p.pending ?? "".toBytes()
+    let mut lines = p.lines
+    let mut stderr = p.stderr ?? ""
+    if pending.isEmpty() && p.delayMs > 0 {
+      clock.sleep(p.delayMs)
+    }
+    while pending.isEmpty() {
+      match lines[0] {
+        none => break,
+        line => {
+          lines = lines.slice(1)
+          if line.fromStderr {
+            stderr = stderr + line.text + line.ending
+          } else {
+            pending = (line.text + line.ending).toBytes()
+          }
+        },
+      }
+    }
+    let k = if n < 1 || n >= pending.length() { pending.length() } else { n }
+    playing[id] = Playing { ...p, lines, stderr, pending: pending.slice(k, pending.length()) }
+    return if k == 0 { Ok(none) } else { Ok(pending.slice(0, k)) }
+  }
+
+  // What was written is the command's stdin in `exec.ran()`.
+  fn writeIn(id: int, data: Bytes) -> Result<void, string> {
+    let cmd = commands[id - 1] ?? command("", [])
+    let before = match cmd.stdin {
+      .Data { data: had } => had,
+      _ => "".toBytes(),
+    }
+    commands[id - 1] = Command { ...cmd, stdin: .Data { data: before.concat(data) } }
+    return Ok()
+  }
+
+  fn closeIn(id: int) {}
+
+  fn closeOut(id: int) {}
+
+  fn refused(id: int) -> bool {
+    return false
+  }
+
+  fn stderrOf(id: int) -> string {
+    let p = playing[id] ?? Playing { lines: [], code: -1, delayMs: 0 }
+    return (p.stderr ?? "") + p.lines.filter((l) => l.fromStderr).map((l) => l.text + l.ending).join("")
+  }
+
+  // `program` prints `lines` (in order, `exec.out` and `exec.err` make them) and exits with
+  // `code`, every time it runs from now on. A program not scripted isn't found.
+  fn script(program: string, lines: List<Line>, code: int) {
+    scripts = [Script { program, lines, code, delayMs: 0 }].concat(scripts)
+  }
+
+  // As `script`, but `ms` of test time pass before each line and before it exits: a slow
+  // program, for a test of `tasks.timeout` around it.
+  fn scriptSlow(program: string, lines: List<Line>, code: int, ms: int) {
+    scripts = [Script { program, lines, code, delayMs: ms }].concat(scripts)
+  }
+
+  // Every command run so far, in order, stdin included.
+  fn ran() -> List<Command> {
+    return commands
+  }
+}
+
+// A command with no directory, environment or input of its own.
+pub fn command(program: string, args: List<string>) -> Command {
+  return Command { program, args, env: [:], stdin: .Nothing, ownGroup: false }
+}
+
+// `cmd` run in the directory `dir`.
+pub fn withDir(cmd: Command, dir: string) -> Command {
+  return Command { ...cmd, dir }
+}
+
+// `cmd` with `name` set to `value` in its environment.
+pub fn withEnv(cmd: Command, name: string, value: string) -> Command {
+  let mut vars = cmd.env
+  vars[name] = value
+  return Command { ...cmd, env: vars }
+}
+
+// `cmd` reading `data` on standard input.
+pub fn withStdin(cmd: Command, data: Bytes) -> Command {
+  return Command { ...cmd, stdin: .Data { data } }
+}
+
+// `cmd` reading `text` on standard input.
+pub fn withStdinText(cmd: Command, text: string) -> Command {
+  return Command { ...cmd, stdin: .Text { text } }
+}
+
+// `cmd` reading the file at `path` on standard input, streamed from disk.
+pub fn withStdinFile(cmd: Command, path: string) -> Command {
+  return Command { ...cmd, stdin: .File { path } }
+}
+
+// `cmd` told it was run as `name` (its argv[0]), as a shell running `program` by another name
+// does. The program started is still `program`.
+pub fn withArgv0(cmd: Command, name: string) -> Command {
+  return Command { ...cmd, argv0: name }
+}
+
+// `cmd` in a process group of its own, as Go's `Setpgid`: a cancel stops the whole group, so
+// what the program started stops with it, and Ctrl-C in the terminal reaches only this program.
+// Off by default, since a child in its own group keeps running if this program is killed. Does
+// nothing on Windows.
+pub fn withOwnGroup(cmd: Command) -> Command {
+  return Command { ...cmd, ownGroup: true }
+}
+
+// `cmd` stopped gently when its task is cancelled: sent `signal` (to its group with
+// `withOwnGroup`), and killed if it is still running `graceMs` later. Without it a cancel kills
+// at once. On Windows a program can't be sent a signal, so it is killed at once there.
+pub fn withStop(cmd: Command, signal: Signal, graceMs: int) -> Command {
+  return Command { ...cmd, stop: Stop { signal, graceMs } }
+}
+
+// Runs `cmd`, folding over its output a line at a time as it comes, as `fold` does: `each`
+// combines what it has so far with the next line. Then the exit code and what `each` made.
+pub fn run<A>(cmd: Command, start: A, each: fn(A, Line) -> A) -> Result<Finished<A>, ExecError> uses exec, each {
+  let id = exec.spawn(cmd)?
+  let mut acc = start
+  while true {
+    match exec.next(id) {
+      none => break,
+      line => acc = each(acc, line),
+    }
+  }
+  return Ok(Finished { code: exec.wait(id), value: acc })
+}
+
+// Runs `cmd` to the end: its exit code and everything it printed.
+pub fn output(cmd: Command) -> Result<Output, ExecError> uses exec {
+  let done = run(cmd, ("", "", ""), (acc, line) => {
+    let printed = line.text + line.ending
+    return if line.fromStderr {
+      (acc.0, acc.1 + printed, acc.2 + printed)
+    } else {
+      (acc.0 + printed, acc.1, acc.2 + printed)
+    }
+  })?
+  return Ok(Output { code: done.code, stdout: done.value.0, stderr: done.value.1, combined: done.value.2 })
+}
+
+// How a piped run ended (`exec.reading`, `exec.piping`): the exit code (-1 when it was killed),
+// what the read gave, and everything printed on stderr.
+pub struct Piped<T> {
+  pub code: int
+  pub value: T
+  pub stderr: string
+}
+
+// Runs `cmd` and gives `read` a reader over its stdout as it comes, the bytes as printed; stdin
+// is `cmd`'s (`withStdin`, `withStdinFile`). If `read` returns before the end, the program's
+// output is closed (it gets a broken pipe). Then the exit code, what `read` gave and stderr.
+//
+//   let png = exec.reading(exec.withStdinFile(exec.command("convert", ["-", "png:-"]), path), (r) => bytes.readAll(r))?
+pub fn reading<T>(cmd: Command, read: fn(fn(int) -> Result<Bytes?, string> uses exec) -> T) -> Result<Piped<T>, ExecError> uses exec, read {
+  let id = exec.spawnPiped(cmd, false)?
+  let value = read((n) => exec.readOut(id, n))
+  exec.closeOut(id)
+  let code = exec.wait(id)
+  return Ok(Piped { code, value, stderr: exec.stderrOf(id) })
+}
+
+// Runs `cmd` with `feed` writing its stdin and `read` reading its stdout, side by side: `feed`
+// runs as a task of its own, so neither waits on a full pipe. Stdin ends when `feed` returns.
+// A write the program refused (it stopped reading) ends `feed` with that `Err`, which is not a
+// failure; any other `Err` from `feed` is `ExecError.Failed`, once the program has ended.
+//
+//   let gz = exec.piping(exec.command("gzip", ["-c"]), (w) => w(data), (r) => bytes.readAll(r))?
+//   if gz.code != 0 { ... gz.stderr ... }
+pub fn piping<T>(cmd: Command, feed: fn(fn(Bytes) -> Result<void, string> uses exec) -> Result<void, string>, read: fn(fn(int) -> Result<Bytes?, string> uses exec) -> T) -> Result<Piped<T>, ExecError> uses exec, tasks, feed, read {
+  let id = exec.spawnPiped(cmd, true)?
+  let got = tasks.scope((s): Result<T, string> => {
+    let fed = s.spawn((): Result<void, string> => {
+      let r = feed((b) => exec.writeIn(id, b))
+      exec.closeIn(id)
+      return if exec.refused(id) { Ok() } else { r }
+    })
+    let value = read((n) => exec.readOut(id, n))
+    exec.closeOut(id)
+    fed.join()?
+    return Ok(value)
+  })
+  let code = exec.wait(id)
+  let stderr = exec.stderrOf(id)
+  return match got {
+    Ok(value) => Ok(Piped { code, value, stderr }),
+    Err(e) => Err(.Failed { message: "feeding the program's stdin: ${e}" }),
+  }
+}
+
+// A line on stdout, ending in "\n", for `exec.script`.
+pub fn out(text: string) -> Line {
+  return Line { text, fromStderr: false, ending: "\n" }
+}
+
+// A line on stderr, ending in "\n", for `exec.script`.
+pub fn err(text: string) -> Line {
+  return Line { text, fromStderr: true, ending: "\n" }
+}
+
+extern "./execgo" {
+  fn IsNotFound(err: GoError) -> bool as isNotFound
+}
+
+// What `goStart` is given for `cmd`, beside its program, argv0, args and dir.
+struct StartArgs {
+  env: List<string>
+  stdinKind: int
+  text: string
+  path: string
+  group: int
+  stopSignal: int
+  graceMs: int
+}
+
+// `cmd` as `goStart` takes it; stdin a pipe for `writeIn` with `pipeIn`.
+fn startArgs(cmd: Command, pipeIn: bool) -> StartArgs {
+  let (kind, text, path) = if pipeIn {
+    (3, "", "")
+  } else {
+    match cmd.stdin {
+      .Nothing => (0, "", ""),
+      .Text { text } => (1, text, ""),
+      .Data { data } => (1, rawText(data), ""),
+      .File { path } => (2, "", path),
+    }
+  }
+  let mut vars: List<string> = []
+  for (k, v) in cmd.env {
+    vars.push(k)
+    vars.push(v)
+  }
+  let (stopSignal, graceMs) = match cmd.stop {
+    none => (-1, 0),
+    s => (signalNumber(s.signal), s.graceMs),
+  }
+  return StartArgs { env: vars, stdinKind: kind, text, path, group: if cmd.ownGroup { 1 } else { 0 }, stopSignal, graceMs }
+}
+
+fn execError(cmd: Command, e: GoError) -> ExecError {
+  return if isNotFound(e) {
+    ExecError.NotFound { program: cmd.program }
+  } else {
+    ExecError.Failed { message: e.message() }
+  }
+}
+
+// The runtime's number for `s` (execgo's table).
+fn signalNumber(s: Signal) -> int {
+  return match s {
+    .Interrupt => 0,
+    .Terminate => 1,
+    .Hangup => 2,
+    .User1 => 3,
+    .User2 => 4,
+  }
+}
+
+// `data` in a string as it is, UTF-8 or not: how bytes cross to the runtime.
+fn rawText(data: Bytes) -> string {
+  // The compiler gives this its body (`stdBody`).
+  return data.toText() ?? ""
+}

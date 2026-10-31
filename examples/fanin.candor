@@ -1,0 +1,112 @@
+module fanin
+
+// Fan-in: one task takes from several channels at once with `tasks.select`, whichever is ready,
+// with a timeout arm for when none is. Each sensor task sends on its own channel; a sender that
+// must not wait offers a reading with `onSend` and `otherwise`.
+
+struct Reading {
+  sensor: string
+  value: int
+}
+
+enum Event {
+  Got { sensor: string, value: int }
+  Closed { sensor: string }
+  Quiet
+}
+
+// A sensor task: sends n readings, one every `every` ms, then closes its channel.
+fn measure(name: string, every: int, n: int, out: Channel<Reading>) uses clock {
+  for i in 0..n {
+    clock.sleep(every)
+    out.send(Reading { sensor: name, value: i })
+  }
+  out.close()
+}
+
+// What a receive arm got: a reading, or `none` once the sensor closed its channel.
+fn event(sensor: string, got: Reading?) -> Event {
+  return match got {
+    none => Event.Closed { sensor }
+    reading => Event.Got { sensor, value: reading.value }
+  }
+}
+
+// Takes readings from both sensors until both channels are closed, noting any `quiet` ms with
+// nothing. A closed channel's arm is always ready, so it leaves the arms once seen.
+fn listen(quiet: int) -> List<string> uses tasks, clock {
+  return tasks.scope((s) => {
+    let temps: Channel<Reading> = s.channel(0)
+    let winds: Channel<Reading> = s.channel(0)
+    s.spawn(() => measure("temp", 30, 3, temps))
+    s.spawn(() => measure("wind", 50, 2, winds))
+    let mut open = ["temp": temps, "wind": winds]
+    let mut log: List<string> = []
+    while !open.isEmpty() {
+      let mut arms: List<Arm<Event>> = [tasks.after(quiet, () => Event.Quiet)]
+      for (name, ch) in open {
+        arms.push(ch.onRecv((got) => event(name, got)))
+      }
+      match tasks.select(arms) {
+        Event.Got { sensor, value } => log.push("${sensor} ${value}")
+        Event.Closed { sensor } => {
+          open.remove(sensor)
+          log.push("${sensor} closed")
+        }
+        Event.Quiet => log.push("quiet")
+      }
+    }
+    return log
+  })
+}
+
+// Offers a reading without waiting: false if nobody is ready to take it.
+fn offer(out: Channel<Reading>, r: Reading) -> bool uses tasks {
+  return tasks.select([out.onSend(r, () => true), tasks.otherwise(() => false)])
+}
+
+// An offer with nobody listening, then one to a listener already waiting.
+fn offers() -> (bool, bool) uses tasks, clock {
+  return tasks.scope((s) => {
+    let ch: Channel<Reading> = s.channel(0)
+    let unheard = offer(ch, Reading { sensor: "wind", value: 1 })
+    let listener = s.spawn(() => ch.recv())
+    clock.sleep(20)
+    let heard = offer(ch, Reading { sensor: "wind", value: 2 })
+    listener.join()
+    return (unheard, heard)
+  })
+}
+
+// Nothing ever arrives: the timeout arm.
+fn idle(ms: int) -> string uses tasks {
+  return tasks.scope((s) => {
+    let never: Channel<int> = s.channel(0)
+    return tasks.select([never.onRecv((x) => "got something"), tasks.after(ms, () => "nothing in ${ms} ms")])
+  })
+}
+
+// Lines of the log that are readings of `what`, or `what` itself.
+fn count(log: List<string>, what: string) -> int {
+  let mut n = 0
+  for line in log {
+    let parts = line.split(" ")
+    if (parts[0] ?? "") == what && (parts[1] ?? "") != "closed" {
+      n = n + 1
+    }
+  }
+  return n
+}
+
+fn main() uses io, tasks, clock {
+  let log = listen(1000)
+  let readings = "temp readings: ${count(log, "temp")}, wind readings: ${count(log, "wind")}"
+  io.println("${readings}, quiet spells: ${count(log, "quiet")}")
+  io.println("both sensors closed: ${log.contains("temp closed") && log.contains("wind closed")}")
+  io.println(idle(50))
+  let (unheard, heard) = offers()
+  io.println("offered with nobody listening: ${if unheard { "taken" } else { "dropped" }}")
+  io.println("offered to a waiting listener: ${if heard { "taken" } else { "dropped" }}")
+}
+
+// Tests run on the scheduler with virtual time, in a seeded order.

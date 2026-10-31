@@ -1,0 +1,28 @@
+module sessions
+
+test "a new session is not expired" {
+  let s = start("Ada")
+  assert !expired(s)
+}
+
+test "a session expires after exactly an hour" {
+  clock.set(1000)
+  let s = start("Ada")
+  clock.advance(60 * 60 * 1000 - 1)
+  assert !expired(s)
+  clock.advance(1)
+  assert expired(s)
+}
+
+test "greet tells an expired user to log in" {
+  let s = start("Ada")
+  clock.advance(2 * 60 * 60 * 1000)
+  greet(s)
+  assert io.output() == "Session for Ada expired, please log in again\n"
+}
+
+test "start records the time" {
+  clock.set(42)
+  let s = start("Ada")
+  assert s.user == "Ada" && s.startedAt == 42
+}

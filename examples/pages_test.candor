@@ -1,0 +1,19 @@
+module pages
+
+test "pages are fetched at once, and failures are reported" {
+  http.serve("https://a.test/", 200, "one two  three")
+  http.serve("https://a.test/gone", 404, "")
+  http.serve("https://a.test/busy", 503, "")
+  assert reports(["https://a.test/", "https://a.test/gone", "https://a.test/busy", "https://b.test/"]) == [
+    "https://a.test/: 3 words",
+    "https://a.test/gone: status 404",
+    "https://a.test/busy: status 503 (try again later)",
+    "https://b.test/: no such host: https://b.test/ (try again later)",
+  ]
+  assert http.requested().length() == 4
+}
+
+test "each test gets a fresh fake" {
+  assert http.requested() == []
+  assert report("https://a.test/") == "https://a.test/: no such host: https://a.test/ (try again later)"
+}

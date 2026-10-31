@@ -1,0 +1,37 @@
+module pages
+
+import "bindings/http"
+import "bindings/strings"
+
+// A user-declared effect: `http` comes from a binding module, with a real implementation over
+// Go's net/http and a fake that tests get instead. Its main fetches real pages, so this example
+// has no .out file; its tests run against the fake.
+
+// One line per page: how many words it has, or what went wrong.
+fn report(url: string) -> string uses http {
+  return match http.get(url) {
+    Ok(body) => "${url}: ${strings.words(body).length()} words",
+    Err(e) => "${url}: ${http.describe(e)}${if retryable(e) { " (try again later)" } else { "" }}",
+  }
+}
+
+// Whether the same request might work later: a server error or no answer might pass, a
+// missing page won't. The error is the binding's own type, written with its module; the
+// patterns name its variants alone, as `e`'s type is known.
+fn retryable(e: http.HttpError) -> bool {
+  return match e {
+    .Status { code } => code >= 500,
+    .Failed => true,
+  }
+}
+
+// Every page at once. The lines come back in the order of the URLs.
+fn reports(urls: List<string>) -> List<string> uses http, tasks {
+  return tasks.all(urls, (url) => report(url))
+}
+
+fn main() uses io, http, tasks {
+  for line in reports(["https://example.com/", "https://example.com/missing", "https://nowhere.invalid/"]) {
+    io.println(line)
+  }
+}

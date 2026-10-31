@@ -1,0 +1,79 @@
+module hash
+
+import "fs"
+
+// Digests and HMACs: Bytes in, Bytes out. `toHex()` or `toBase64()` makes text of them, and
+// `s.toBytes()` hashes a string's UTF-8.
+//
+//   hash.sha256(body.toBytes()).toHex()          // "e3b0c442..." for ""
+//   hash.sha1(path.toBytes()).toHex().slice(0, 8) // a short id
+//   hash.hmacSha256(secret, body.toBytes())       // a signature
+//   hash.equal(sig, expected)                     // check it in constant time
+//   hash.sha256File(path)?                        // a file of any size, `uses fs`
+//
+// md5 and sha1 are broken for security: use them for ids and old checksums, not signatures or
+// passwords. Passwords want a slow hash: `crypto.deriveKey`, argon2id.
+
+// The SHA-1 digest, 20 bytes.
+pub fn sha1(data: Bytes) -> Bytes {
+  // The compiler gives these their bodies (`stdBody` in emit-go).
+  return data
+}
+
+// The SHA-256 digest, 32 bytes.
+pub fn sha256(data: Bytes) -> Bytes {
+  return data
+}
+
+// The SHA-512 digest, 64 bytes.
+pub fn sha512(data: Bytes) -> Bytes {
+  return data
+}
+
+// The MD5 digest, 16 bytes.
+pub fn md5(data: Bytes) -> Bytes {
+  return data
+}
+
+// The HMAC-SHA256 of `data` under `key`, 32 bytes: how webhooks and tokens are signed.
+pub fn hmacSha256(key: Bytes, data: Bytes) -> Bytes {
+  return data
+}
+
+// The HMAC-SHA1 of `data` under `key`, 20 bytes: GitHub's older `X-Hub-Signature`, and other
+// webhooks that still sign with it. Fine for checking those; sign new things with SHA-256.
+pub fn hmacSha1(key: Bytes, data: Bytes) -> Bytes {
+  return data
+}
+
+// The HMAC-SHA512 of `data` under `key`, 64 bytes.
+pub fn hmacSha512(key: Bytes, data: Bytes) -> Bytes {
+  return data
+}
+
+// Whether `a` and `b` are the same bytes, in time that doesn't depend on where they differ:
+// for comparing a signature from a request with the one you worked out. `==` stops at the first
+// difference, which tells an attacker how much they got right.
+pub fn equal(a: Bytes, b: Bytes) -> bool {
+  return false
+}
+
+// The SHA-1 digest of the file at `path`, read a piece at a time, so its size doesn't matter.
+pub fn sha1File(path: string) -> Result<Bytes, fs.FsError> uses fs {
+  return Err(fs.FsError.NotFound { path })
+}
+
+// The SHA-256 digest of the file at `path`, read a piece at a time.
+pub fn sha256File(path: string) -> Result<Bytes, fs.FsError> uses fs {
+  return Err(fs.FsError.NotFound { path })
+}
+
+// The SHA-512 digest of the file at `path`, read a piece at a time.
+pub fn sha512File(path: string) -> Result<Bytes, fs.FsError> uses fs {
+  return Err(fs.FsError.NotFound { path })
+}
+
+// The MD5 digest of the file at `path`, read a piece at a time.
+pub fn md5File(path: string) -> Result<Bytes, fs.FsError> uses fs {
+  return Err(fs.FsError.NotFound { path })
+}

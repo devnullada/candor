@@ -1,0 +1,67 @@
+module html
+
+import "json"
+import "xml"
+
+// HTML as text. `html.toText(page)` is what a reader sees on the page: tags dropped, `head`,
+// `script`, `style` and `display:none` left out, entities decoded, a line per block and a blank
+// line around paragraphs, headings, lists and tables, and where a block's padding or margin
+// opens a gap (as mail lays out its paragraphs). A row of plain cells is one line, `a | b`;
+// cells holding blocks or line breaks are read one after another. A list item starts with
+// "- ", a link with text of its own shows its address after, "(https://...)", and an image
+// shows its `alt` (unless that is an address). An icon link and its caption going to one
+// place are said once. Broken HTML is read as a browser would; it never fails.
+//
+//   let m = mime.parse(raw)?
+//   let body = m.text ?? html.toText(m.html ?? "")   // an HTML-only mail
+//
+// HTML as a tree. `html.parse(page)` reads a whole page into its `<html>` element, with `head`
+// and `body` built as a browser builds them: implied and stray tags, unclosed `<p>` and `<li>`,
+// tables, entities. `html.parseFragment(s)` reads what goes inside a `<body>` (a feed item's
+// content, a mail part) into its nodes. Both give `xml.Node`, so `xml.Lookup` reads them:
+//
+//   let page = html.parse(body)
+//   let title = page.child("head").child("title").text()
+//   let feeds = page.child("head").children("link").filter((l) => l.attr("rel") == "alternate")
+//
+// Element and attribute names are lower case. HTML elements have the space ""; `<svg>` and
+// `<math>` and what is in them have their namespace URL, as in xml. Comments and the DOCTYPE
+// are left out; script and style keep their text as written. Neither fails: broken HTML is
+// read as a browser reads it.
+//
+// `html.encode(node)` writes a tree back as HTML, as Go's html.Render does: void elements as
+// `<br/>`, script and style text unescaped. A sanitizer reads a fragment, keeps what it allows,
+// and writes it: `html.encodeAll(kept)`. (`xml.encode` and `innerXml` write XML, not HTML.)
+
+extern "./htmlgo" {
+  fn ToText(s: string) -> string as goToText
+  fn Parse(s: string) -> string as goParse
+  fn ParseFragment(s: string) -> string as goParseFragment
+  fn Encode(tree: string) -> string as goEncode
+}
+
+// The text a reader sees on the page.
+pub fn toText(page: string) -> string {
+  return goToText(page)
+}
+
+// A whole page: its `<html>` element, with `head` and `body` in it.
+pub fn parse(page: string) -> xml.Node {
+  // Go wrote it from its own structs, so it always decodes.
+  return json.decode<xml.Node>(goParse(page)).ok() ?? xml.element("html", [:], [])
+}
+
+// What goes inside a `<body>`, as its nodes: elements and text.
+pub fn parseFragment(s: string) -> List<xml.Node> {
+  return json.decode<List<xml.Node>>(goParseFragment(s)).ok() ?? []
+}
+
+// `node` as HTML.
+pub fn encode(node: xml.Node) -> string {
+  return goEncode(json.encode(node))
+}
+
+// `nodes` as HTML, one after another: a fragment written back.
+pub fn encodeAll(nodes: List<xml.Node>) -> string {
+  return nodes.map((n) => encode(n)).join("")
+}

@@ -1,0 +1,9 @@
+POST /todos -> 201 {"id":1,"title":"wax the board","done":false}
+POST /todos -> 201 {"id":2,"title":"call the vet","done":false}
+PATCH /todos/1 -> 200 {"id":1,"title":"wax the board","done":true}
+GET /todos -> 200 [{"id":1,"title":"wax the board","done":true},{"id":2,"title":"call the vet","done":false}]
+DELETE /todos/2 -> 204
+GET /todos/2 -> 404 {"error":"no todo 2"}
+POST /todos -> 400 {"error":"bad body: $.title: expected a string, found 7"}
+PATCH /todos/1 -> 400 {"error":"bad body: $.don: unknown field; expected one of \"title\", \"done\""}
+PATCH /todos/1 -> 400 {"error":"nothing to change: a todo has `title` and `done`"}

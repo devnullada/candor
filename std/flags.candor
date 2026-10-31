@@ -1,0 +1,41 @@
+module flags
+
+// A command line read into a struct of options, as Go's `flag` package reads one. Each field is
+// a flag, and the value the struct is given is its default:
+//
+//   // Usage: hey [options...] <url>
+//   struct Options {
+//     // Number of requests to run.
+//     n: int
+//     // Custom HTTP header; repeat it for more.
+//     headers: List<string> as "H"
+//     // Stop after this long, `-z 10s`.
+//     z: time.Duration
+//     disableCompression: bool
+//   }
+//
+//   fn main() -> Result<void, Exit> uses io, env {
+//     let (o, rest) = flags.parse(env.args(), Options { n: 200, headers: [], z: time.Duration { ms: 0 }, disableCompression: false })?
+//     ...
+//   }
+//
+// A field's flag is its name in kebab case, `-disable-compression`, or the name `as` gives it.
+// Fields are `string`, `int`, `float`, `bool`, `time.Duration` ("1m30s", "500ms"), a `T?` of
+// one (none unless given), or a `List` of one other than bool (each use adds one; the first
+// replaces the default).
+//
+// Go's rules: `-n 5`, `-n=5`, `--n 5`; a bool is `-b` or `-b=false`, never `-b false`. Flags end
+// at the first argument that isn't one, or at `--`; the rest are given back.
+//
+// The usage is the struct's comment (else "Usage:"), then each flag as Go prints it: its kind,
+// the field's comment, and its default unless that is zero. A name in backquotes in a comment
+// is the kind shown: "write the report to `file`" prints `-o file`.
+//
+// A mistake gives `Err(Exit { status: 2, message })`: what was wrong, then the usage, so `main`
+// returns it with `?`. `-h` and `-help`, unless a field is named so, give status 0 and the usage.
+
+// The options in `defaults` with the flags in `args` set, and the arguments after the flags.
+pub fn parse<T>(args: List<string>, defaults: T) -> Result<(T, List<string>), Exit> {
+  // The compiler writes each call (`flagCalls` in emit-go), for the struct it is given.
+  return Ok((defaults, args))
+}

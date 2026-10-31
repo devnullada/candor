@@ -1,0 +1,40 @@
+module text
+
+// Strings are UTF-8 and count code points: `length`, `chars`, `indexOf` and `slice`.
+// Bytes are `byteLength`. There is no `s[i]`: `chars()` is the list of code points, each a
+// `char` (`'l'`).
+
+fn initials(name: string) -> string {
+  return name.trim().split(" ").filter((w) => !w.isEmpty()).map((w) => w.slice(0, 1).toUpperCase()).join("")
+}
+
+// At most `max` characters, the last one an ellipsis when something was cut.
+fn shorten(s: string, max: int) -> string {
+  return if s.length() <= max { s } else { "${s.slice(0, max - 1)}…" }
+}
+
+// A two-column table: names padded to one width, numbers right-aligned.
+fn table(rows: List<(string, int)>) -> List<string> {
+  let width = rows.fold(0, (w, row) => if row.0.length() > w { row.0.length() } else { w })
+  return rows.map((row) => "${row.0.padEnd(width, " ")} ${row.1.toString().padStart(4, " ")}")
+}
+
+fn main() uses io {
+  let greeting = "héllo, wörld 👋"
+  io.println("${greeting.length()} characters, ${greeting.byteLength()} bytes")
+  io.println(greeting.toUpperCase())
+  io.println("${greeting.chars().filter((c) => c == 'l').length()} l's")
+  io.println(shorten(greeting, 8))
+  io.println(initials("  marcel   proust "))
+  io.println("${"a-b-c".replaceAll("-", "+")} ${"ab".repeat(3)}")
+  let parts = "key=value=more".split("=")
+  io.println("${parts.length()} parts, first: ${parts[0] ?? ""}")
+  let doubled = match "42".toInt() {
+    none => "not a number"
+    n => (n * 2).toString()
+  }
+  io.println(doubled)
+  for line in table([("swann", 12), ("guermantes", 340), ("albertine", 7)]) {
+    io.println(line)
+  }
+}

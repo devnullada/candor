@@ -1,0 +1,32 @@
+module wschat
+
+test "echo, the test playing the client" {
+  tasks.scope((s) => {
+    let room: Mutex<List<Member>> = s.mutex([])
+    let ids = s.atomic(0)
+    let client = http.socketOf(s, route(get("/echo"), room, ids))
+    assert client.send("hi")
+    assert client.receive() == "echo: hi"
+    client.send("bye")
+    assert client.receive() == none
+    assert !client.send("anyone?")
+  })
+}
+
+test "a chat of two, and one leaving" {
+  tasks.scope((s) => {
+    let room: Mutex<List<Member>> = s.mutex([])
+    let ids = s.atomic(0)
+    let ann = http.socketOf(s, route(get("/chat"), room, ids))
+    let bob = http.socketOf(s, route(get("/chat"), room, ids))
+    // Both are in once each has had a message back.
+    ann.send("hello")
+    assert ann.receive() != none
+    bob.send("hi")
+    let seen = [ann.receive() ?? "", bob.receive() ?? ""]
+    assert seen.all((m) => m.endsWith(": hi") || m.endsWith(": hello"))
+    bob.close()
+    ann.close()
+    assert ann.receive() == none || ann.receive() == none
+  })
+}

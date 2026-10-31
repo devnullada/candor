@@ -1,0 +1,61 @@
+module branches
+
+fn sign(n: int) -> string {
+  if n > 0 {
+    return "positive"
+  } else if n < 0 {
+    return "negative"
+  } else {
+    return "zero"
+  }
+}
+
+fn abs(n: int) -> int {
+  return if n < 0 { -n } else { n }
+}
+
+fn describe(n: int) uses io {
+  if n % 2 == 0 {
+    io.println("${n} is even")
+  }
+}
+
+fn note(s: string) -> string uses io {
+  io.println("evaluating ${s}")
+  return s
+}
+
+fn main() uses io {
+  io.println("sign(-5) = ${sign(-5)}, sign(0) = ${sign(0)}")
+  io.println("abs(-5) = ${abs(-5)}")
+
+  let size = if abs(-150) > 100 { "big" } else if abs(-150) > 10 { "medium" } else { "small" }
+  io.println("size = ${size}")
+
+  // An `if` inside an argument list, spanning lines, with `else` on its own line.
+  io.println("parity: " + if 7 % 2 == 0 {
+    "even"
+  }
+  else {
+    "odd"
+  })
+
+  // Branches are blocks: a `let` inside one stays inside.
+  let label = if true {
+    let doubled = abs(-21) * 2
+    "doubled = ${doubled}"
+  } else {
+    "unreachable"
+  }
+  io.println(label)
+
+  describe(4)
+  describe(5)
+
+  // Evaluation stays left to right, even though the `if` is lowered into statements.
+  io.println(note("a") + if true { note("b") } else { "" })
+
+  // `&&` only evaluates its right side when the left is true, `if` or not.
+  let skipped = false && if true { note("never") == "" } else { false }
+  io.println("skipped = ${skipped}")
+}

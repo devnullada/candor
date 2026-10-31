@@ -1,0 +1,169 @@
+module notes
+
+import "bindings/strconv"
+
+// A notebook kept in SQLite. The database is Go's (database/sql, with modernc.org/sqlite: pure
+// Go, so no C compiler), and Candor can't look into Go's values, so all of it lives behind the
+// effect `notes`. Tests get the fake, a notebook in a list.
+
+pub enum NoteError {
+  // The database said no: a broken file, a full disk.
+  Failed { message: string }
+  // `notes.open` hasn't been called, or `notes.close` has.
+  Closed
+}
+
+pub struct Note {
+  id: int,
+  body: string,
+}
+
+effect notes {
+  // The driver registers itself with database/sql when its package loads.
+  extern "modernc.org/sqlite@v1.60.1" {}
+
+  extern "database/sql" {
+    // Go's types, which only this effect holds. A `*sql.DB` is a pool of connections.
+    type *DB as Db
+    type *Rows
+    // What Exec reports. `Result` is Candor's already, so it gets another name.
+    type Result as Written
+
+    fn Open(driver: string, source: string) -> Result<Db, GoError> as openDb
+    fn (db: Db) SetMaxOpenConns(n: int) as setMaxOpenConns
+    fn (db: Db) Close() -> Result<void, GoError> as closeDb
+    // Go's Exec and Query are variadic: `...(...)` says what this binding passes.
+    fn (db: Db) Exec(query: string, ...()) -> Result<Written, GoError> as exec
+    fn (db: Db) Exec(query: string, ...(body: string)) -> Result<Written, GoError> as insert
+    fn (db: Db) Query(query: string, ...()) -> Result<Rows, GoError> as query
+    fn (w: Written) LastInsertId() -> Result<int, GoError> as lastId
+    fn (rows: Rows) Next() -> bool as next
+    fn (rows: Rows) Close() -> Result<void, GoError> as closeRows
+  }
+
+  extern "./sqlrows" {
+    fn Strings(rows: Rows) -> Result<List<string>, GoError> as row
+  }
+
+  // Set up when `main` starts: no database until `open`.
+  let mut db: Db? = none
+
+  // Opens the notebook at `path` (":memory:" for one that lasts as long as the program).
+  pub fn open(path: string) -> Result<void, NoteError> {
+    let conn = failed(openDb("sqlite", path))?
+    // SQLite writes one at a time anyway, and each connection to ":memory:" is a database of its own.
+    setMaxOpenConns(conn, 1)
+    failed(exec(conn, "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"))?
+    db = conn
+    return Ok()
+  }
+
+  // Adds a note; gives its id.
+  pub fn add(body: string) -> Result<int, NoteError> {
+    if db == none {
+      return Err(NoteError.Closed)
+    }
+    let written = failed(insert(db, "INSERT INTO notes (body) VALUES (?)", body))?
+    return failed(lastId(written))
+  }
+
+  // Every note, oldest first.
+  pub fn all() -> Result<List<Note>, NoteError> {
+    if db == none {
+      return Err(NoteError.Closed)
+    }
+    let rows = failed(query(db, "SELECT id, body FROM notes ORDER BY id"))?
+    let mut found: List<Note> = []
+    while next(rows) {
+      let cols = failed(row(rows))?
+      let id = failed(strconv.atoi(cols[0] ?? ""))?
+      found.push(Note { id, body: cols[1] ?? "" })
+    }
+    failed(closeRows(rows))?
+    return Ok(found)
+  }
+
+  pub fn close() -> Result<void, NoteError> {
+    return match db {
+      none => Ok(),
+      conn => {
+        db = none
+        failed(closeDb(conn))
+      },
+    }
+  }
+}
+
+fake notes {
+  let mut open = false
+  let mut bodies: List<string> = []
+  let mut full = false
+
+  fn open(path: string) -> Result<void, NoteError> {
+    open = true
+    return Ok()
+  }
+
+  fn add(body: string) -> Result<int, NoteError> {
+    if !open {
+      return Err(NoteError.Closed)
+    }
+    if full {
+      return Err(NoteError.Failed { message: "database or disk is full" })
+    }
+    bodies.push(body)
+    return Ok(bodies.length())
+  }
+
+  fn all() -> Result<List<Note>, NoteError> {
+    if !open {
+      return Err(NoteError.Closed)
+    }
+    let mut found: List<Note> = []
+    for (i, body) in bodies.enumerated() {
+      found.push(Note { id: i + 1, body })
+    }
+    return Ok(found)
+  }
+
+  fn close() -> Result<void, NoteError> {
+    open = false
+    return Ok()
+  }
+
+  // From now on, adding fails, as on a full disk.
+  fn fill() {
+    full = true
+  }
+}
+
+// A Go error, in this notebook's terms. Generic, so it passes Go's values through without naming them.
+fn failed<T>(r: Result<T, GoError>) -> Result<T, NoteError> {
+  return match r {
+    Ok(v) => Ok(v),
+    Err(e) => Err(NoteError.Failed { message: e.message() }),
+  }
+}
+
+// Writes `lines` into a fresh notebook at `path`, and reads them back.
+fn jot(path: string, lines: List<string>) -> Result<List<Note>, NoteError> uses notes {
+  notes.open(path)?
+  for line in lines {
+    notes.add(line)?
+  }
+  let all = notes.all()?
+  notes.close()?
+  return Ok(all)
+}
+
+fn main() uses io, notes {
+  match jot(":memory:", ["buy milk", "call the vet", "wax the board"]) {
+    Ok(all) => {
+      for n in all {
+        io.println("${n.id}. ${n.body}")
+      }
+    },
+    Err(NoteError.Failed { message }) => io.println("the notebook failed: ${message}"),
+    Err(NoteError.Closed) => io.println("the notebook is closed"),
+  }
+}

@@ -1,0 +1,24 @@
+module math
+
+fn square(n: int) -> int {
+  return n * n
+}
+
+fn main() uses io {
+  let a = 7
+  let b = 3
+  io.println("7 + 3 * 2 = ${a + b * 2}")
+  io.println("(7 + 3) * 2 = ${(a + b) * 2}")
+  io.println("7 / 3 = ${a / b}, remainder ${a % b}")
+  io.println("-7 / 3 = ${-a / b}, remainder ${-a % b}")
+  io.println("square(-4) = ${square(-4)}")
+  io.println("7 > 3 && 3 >= 3: ${a > b && b >= 3}")
+  io.println("\"abc\" < \"abd\": ${"abc" < "abd"}")
+
+  // A line ending in an operator continues on the next.
+  let total = a * 1000000 +
+    b * 1000 +
+    square(b)
+  // `+` joins strings too, with `toString()` for anything else.
+  io.println("total = " + total.toString())
+}

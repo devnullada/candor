@@ -1,0 +1,34 @@
+module failing
+
+struct Point {
+  x: int
+  y: int
+}
+
+enum Shape {
+  Dot
+  Circle { center: Point, r: int }
+}
+
+fn total(a: int, b: int) -> int {
+  return a + b - 1
+}
+
+fn find(name: string) -> string? {
+  return if name == "Ada" { "ada@example.com" } else { none }
+}
+
+fn circle() -> Shape {
+  return Shape.Circle { center: Point { x: 1, y: 2 }, r: 3 }
+}
+
+fn area(s: Shape) -> int {
+  return match s {
+    Shape.Dot => 0
+    Shape.Circle { r } => 3 * r * r
+  }
+}
+
+fn div(a: int, b: int) -> int {
+  return a / b
+}

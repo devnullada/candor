@@ -1,0 +1,29 @@
+module sessions
+
+// Sessions expire after an hour. Time comes from the `clock` effect, so tests control it.
+
+struct Session {
+  user: string
+  startedAt: int
+}
+
+fn start(user: string) -> Session uses clock {
+  return Session { user, startedAt: clock.now() }
+}
+
+fn expired(s: Session) -> bool uses clock {
+  return clock.now() - s.startedAt >= 60 * 60 * 1000
+}
+
+fn greet(s: Session) uses io, clock {
+  if expired(s) {
+    io.println("Session for ${s.user} expired, please log in again")
+  } else {
+    io.println("Welcome back, ${s.user}")
+  }
+}
+
+fn main() uses io, clock {
+  let s = start("Ada")
+  greet(s)
+}

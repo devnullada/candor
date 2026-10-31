@@ -1,0 +1,120 @@
+module url
+
+import "json"
+
+// URLs, on Go's net/url: `url.parse(s)` splits one into its parts, `url.resolve(base, ref)`
+// reads a link against the page it was on, `url.query(q)` reads a query string and
+// `url.encodeQuery(m)` writes one, and `url.encode(s)` / `url.decode(s)` escape a part.
+//
+//   match url.parse("https://example.com:8080/a%20b?tag=x&tag=y#top") {
+//     none => ...,
+//     u => ...,   // u.scheme "https", u.host "example.com", u.port 8080, u.path "/a b",
+//   }             // u.query "tag=x&tag=y", u.fragment "top"
+//   url.query("tag=x&tag=y")["tag"]                                   // ["x", "y"]
+//   url.resolve("https://example.com/blog/post", "../feed.xml")       // "https://example.com/feed.xml"
+//   url.resolve("https://example.com/a", "//cdn.example.com/i.png")   // "https://cdn.example.com/i.png"
+//   url.resolve("https://example.com/a?x=1", "?page=2")               // "https://example.com/a?page=2"
+//   "https://example.com/search?${url.encodeQuery(["q": ["rock & roll"]])}"  // ...?q=rock+%26+roll
+//   url.format(url.Url { ...u, path: "/other", query: "" })           // "https://example.com:8080/other#top"
+//
+// A relative URL parses too, its scheme and host empty: `url.parse("../x")` has the path "../x".
+// Importing `url` takes the name; `import "url" as urls` frees it for a `url` of your own.
+
+// A URL's parts. What it doesn't have is "" or none.
+pub struct Url {
+  // Lowercase: "https", "mailto"; "" for a relative URL.
+  pub scheme: string
+  pub user: string?
+  pub password: string?
+  // Without the port, or IPv6's brackets: "example.com", "::1".
+  pub host: string
+  pub port: int?
+  // Decoded: "/a b". For `mailto:ada@example.com`, "ada@example.com" as written.
+  pub path: string
+  // As written, without the `?`: read it with `url.query`.
+  pub query: string
+  // Decoded, without the `#`.
+  pub fragment: string
+}
+impl Json for Url
+
+extern "./urlgo" {
+  fn Parse(s: string) -> Result<string, GoError> as goParse
+  fn Format(parts: string) -> string as goFormat
+  fn Resolve(base: string, ref: string) -> Result<string, GoError> as goResolve
+  fn Query(q: string) -> List<string> as goQuery
+  fn EncodeQuery(kv: List<string>) -> string as goEncodeQuery
+  fn Encode(s: string) -> string as goEncode
+  fn EncodePath(s: string) -> string as goEncodePath
+  fn Decode(s: string) -> Result<string, GoError> as goDecode
+  fn DecodePath(s: string) -> Result<string, GoError> as goDecodePath
+}
+
+// `s`'s parts; none if it isn't a URL (a bad escape like `%zz`, a port that isn't a number, a
+// control character).
+pub fn parse(s: string) -> Url? {
+  return match goParse(s) {
+    Ok(text) => json.decode<Url>(text).ok(),
+    Err(_) => none,
+  }
+}
+
+// `u` written back as a URL, its path, user and fragment escaped again.
+pub fn format(u: Url) -> string {
+  return goFormat(json.encode(u))
+}
+
+// `ref` read against `base`, as a browser reads a link (`href`, `src`, a redirect) against the
+// page it is on: `../`, `//host/...` (the base's scheme), `?query` and `#fragment` alone, and an
+// absolute `ref` as it is. None if either isn't a URL.
+pub fn resolve(base: string, ref: string) -> string? {
+  return goResolve(base, ref).ok()
+}
+
+// A query string's keys and their values, decoded (`+` is a space), in order: `a=1&b=2&a=3`
+// gives `["a": ["1", "3"], "b": ["2"]]`. A leading `?` is skipped, a key without `=` has the
+// value "", and a part that doesn't decode is kept as written.
+pub fn query(q: string) -> Map<string, List<string>> {
+  let kv = goQuery(q)
+  let mut out: Map<string, List<string>> = [:]
+  for i in 0..kv.length() / 2 {
+    let k = kv[2 * i] ?? ""
+    let mut values = out[k] ?? []
+    values.push(kv[2 * i + 1] ?? "")
+    out[k] = values
+  }
+  return out
+}
+
+// A query string from keys and their values, in the map's order, escaped: `["q": ["a b"],
+// "tag": ["x", "y"]]` gives `q=a+b&tag=x&tag=y`. No leading `?`.
+pub fn encodeQuery(q: Map<string, List<string>>) -> string {
+  let mut kv: List<string> = []
+  for (k, values) in q {
+    for v in values {
+      kv.push(k)
+      kv.push(v)
+    }
+  }
+  return goEncodeQuery(kv)
+}
+
+// `s` escaped for a query key or value: a space is `+`, `&`, `=`, `/` and the rest escaped.
+pub fn encode(s: string) -> string {
+  return goEncode(s)
+}
+
+// `s` escaped for one path segment: a space is `%20`, `/` is escaped.
+pub fn encodePath(s: string) -> string {
+  return goEncodePath(s)
+}
+
+// A query key or value decoded: `+` is a space. None for a bad escape like `%zz`.
+pub fn decode(s: string) -> string? {
+  return goDecode(s).ok()
+}
+
+// A path segment decoded: `+` stays `+`. None for a bad escape.
+pub fn decodePath(s: string) -> string? {
+  return goDecodePath(s).ok()
+}

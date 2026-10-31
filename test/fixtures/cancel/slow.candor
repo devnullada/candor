@@ -1,0 +1,20 @@
+module slow
+
+effect slow {
+  extern "./native" {
+    fn Wait(ctx, ms: int) -> Result<int, GoError> as goWait
+  }
+
+  pub fn wait(ms: int) -> string {
+    return match goWait(ms) {
+      Ok(_) => "waited",
+      Err(e) => "failed: " + e.message(),
+    }
+  }
+}
+
+fake slow {
+  fn wait(ms: int) -> string {
+    return "waited"
+  }
+}
