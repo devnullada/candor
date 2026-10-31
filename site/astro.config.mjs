@@ -13,5 +13,7 @@ export default defineConfig({
     shikiConfig: { themes: { light: 'github-light', dark: 'github-dark' }, defaultColor: 'dark', langAlias: { candor: 'rust' } },
     rehypePlugins: [docLinks],
   },
-  vite: { plugins: [tailwindcss()], server: { fs: { allow: ['..'] } } },
+  // /api is sha256's contact service: Caddy proxies it on the server; in development it runs on
+  // 5290 (apps/sha256.no/README.md in the sha256 repo says how, with CONTACT_DRY_RUN=1).
+  vite: { plugins: [tailwindcss()], server: { fs: { allow: ['..'] }, proxy: { '/api': 'http://127.0.0.1:5290' } } },
 });

@@ -6052,6 +6052,9 @@ the site rather than links out to GitHub.
   as Caddy serves them.
 - Text the docs meant literally, `List<T>` in a heading, was read as an HTML tag (on GitHub
   too). `docs/reference.md` escapes it now (`src/reference.ts`); `candor doc` prints it as is.
+- `/contact` (#5448c737): a form that mails candor@sha256.no through sha256's contact service, the
+  one sha256.no's form uses (Candor, Zoho's API); Caddy proxies `/api/contact` to it. No service
+  in this repo. Bugs still go to GitHub issues, and the page says so.
 
 ## Open questions
 

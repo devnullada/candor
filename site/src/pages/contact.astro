@@ -1,0 +1,101 @@
+---
+// /contact: posts to /api/contact, sha256's contact service (apps/sha256.no/contact in the sha256
+// repo), which Caddy proxies for candorlanguage.org and which mails candor@sha256.no. Same
+// contract as sha256.no's form: JSON {name, email, message, website}, answered {sent} or {error}.
+import Base from '../layouts/Base.astro';
+import { repo } from '../site';
+
+const mailbox = 'candor@sha256.no';
+const field = 'mt-2 block w-full rounded-md border border-line bg-panel px-4 py-3 outline-none transition-colors focus:border-accent';
+---
+
+<Base title="Contact · Candor" description="Write to the people behind Candor.">
+  <main class="pb-16">
+    <section class="py-12">
+      <h1 class="text-4xl font-semibold tracking-tight">Contact</h1>
+      <p class="mt-4 max-w-2xl text-muted">
+        Questions, ideas, or using Candor somewhere: write here. A bug in the compiler goes to
+        <a class="underline hover:text-fg" href={`${repo}/issues`}>GitHub issues</a>, with the version and the smallest file that shows it.
+      </p>
+    </section>
+
+    <section class="max-w-2xl border-t border-line py-10">
+      <form id="contact" class="space-y-5">
+        <div class="grid gap-5 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-sm text-muted">Name</span>
+            <input name="name" autocomplete="name" maxlength="100" class={field} />
+          </label>
+          <label class="block">
+            <span class="text-sm text-muted">Email</span>
+            <input name="email" type="email" autocomplete="email" maxlength="254" required class={field} />
+          </label>
+        </div>
+        <label class="block">
+          <span class="text-sm text-muted">Message</span>
+          <textarea name="message" required maxlength="5000" rows="7" class={field}></textarea>
+        </label>
+        <!-- Only a bot fills this in: it's off screen and skipped by the keyboard. -->
+        <div aria-hidden="true" class="absolute -left-[9999px] h-px w-px overflow-hidden">
+          <label>Website <input name="website" tabindex="-1" autocomplete="off" /></label>
+        </div>
+        <div class="flex flex-wrap items-center gap-4">
+          <button type="submit" class="rounded-md bg-accent px-6 py-3 font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50">Send</button>
+          <p id="contact-error" role="alert" class="text-sm text-red-400"></p>
+        </div>
+      </form>
+
+      <div id="contact-sent" hidden class="rounded-lg border border-accent/40 bg-panel p-7">
+        <p class="text-xl font-semibold">Thanks. It's on its way.</p>
+        <p class="mt-2 text-muted">The answer comes by email, usually within a few days.</p>
+        <button id="contact-again" type="button" class="mt-6 text-sm text-accent hover:underline">Write another</button>
+      </div>
+    </section>
+  </main>
+
+  <script define:vars={{ mailbox }}>
+    const form = document.getElementById('contact');
+    const error = document.getElementById('contact-error');
+    const sent = document.getElementById('contact-sent');
+    const button = form.querySelector('button[type=submit]');
+    const fallback = `It didn't go through. Write to ${mailbox} instead.`;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = new FormData(form);
+      error.textContent = '';
+      button.disabled = true;
+      button.textContent = 'Sending…';
+      try {
+        const res = await fetch('/api/contact', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: data.get('name'),
+            email: data.get('email'),
+            message: data.get('message'),
+            website: data.get('website'),
+          }),
+        });
+        if (res.ok) {
+          form.reset();
+          form.hidden = true;
+          sent.hidden = false;
+          return;
+        }
+        const body = await res.json().catch(() => null);
+        error.textContent = typeof body?.error === 'string' ? body.error : fallback;
+      } catch {
+        error.textContent = fallback;
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Send';
+      }
+    });
+
+    document.getElementById('contact-again').addEventListener('click', () => {
+      sent.hidden = true;
+      form.hidden = false;
+    });
+  </script>
+</Base>

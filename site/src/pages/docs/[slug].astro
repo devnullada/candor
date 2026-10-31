@@ -28,6 +28,7 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
           <li><a class:list={['hover:text-fg', p.slug === entry.id ? 'font-semibold text-fg' : 'text-muted']} href={`/docs/${p.slug}/`}>{p.name}</a></li>
         ))}
         <li><a class="text-muted hover:text-fg" href="/download/">Download</a></li>
+        <li><a class="text-muted hover:text-fg" href="/contact/">Contact</a></li>
       </ul>
       <p class="mt-6 hidden text-xs uppercase tracking-wide text-muted lg:block">For agents</p>
       <ul class="mt-2 hidden flex-col gap-2 font-mono text-xs lg:flex">
