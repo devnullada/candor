@@ -22,8 +22,15 @@ if (-not $want -or (Get-FileHash -Algorithm SHA256 $tmp).Hash -ne $want) {
   Remove-Item $tmp
   throw "candor: $file doesn't match the release's SHA256SUMS; nothing installed"
 }
-Move-Item -Force $tmp (Join-Path $dir 'candor.exe')
 $exe = Join-Path $dir 'candor.exe'
+# An installed candor.exe (maybe running) is renamed aside, which Windows allows, then replaced.
+if (Test-Path $exe) {
+  $old = Join-Path $dir 'candor.old.exe'
+  try { Remove-Item -Force $old -ErrorAction Stop } catch {}
+  if (Test-Path $old) { $old = Join-Path $dir "candor.old.$(Get-Random).exe" }
+  Move-Item $exe $old
+}
+Move-Item $tmp $exe
 Write-Host "installed $((& $exe version)[0]) in $dir"
 
 $path = [Environment]::GetEnvironmentVariable('Path', 'User')
