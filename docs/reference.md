@@ -11,7 +11,7 @@ modules document themselves: [`std/http.candor`](../std/http.candor),
 [`std/url.candor`](../std/url.candor), [`std/bytes.candor`](../std/bytes.candor), [`std/hash.candor`](../std/hash.candor),
 [`std/time.candor`](../std/time.candor), [`std/flags.candor`](../std/flags.candor).
 
-[int](#int) · [float](#float) · [char](#char) · [bool](#bool) · [string](#string) · [Bytes](#bytes) · [List<T>](#listt) · [Map<K, V>](#mapk-v) · [T?](#t) · [Result<T, E>](#resultt-e) · [GoError](#goerror) · [Exit](#exit) · [io (effect)](#io-effect) · [clock (effect)](#clock-effect) · [env (effect)](#env-effect) · [random (effect)](#random-effect) · [tasks (effect)](#tasks-effect) · [Scope](#scope) · [Task<T>](#taskt) · [Mutex<T>](#mutext) · [Lock](#lock) · [Atomic<T>](#atomict) · [Channel<T>](#channelt)
+[int](#int) · [float](#float) · [char](#char) · [bool](#bool) · [string](#string) · [Bytes](#bytes) · [List\<T>](#listt) · [Map\<K, V>](#mapk-v) · [T?](#t) · [Result\<T, E>](#resultt-e) · [GoError](#goerror) · [Exit](#exit) · [io (effect)](#io-effect) · [clock (effect)](#clock-effect) · [env (effect)](#env-effect) · [random (effect)](#random-effect) · [tasks (effect)](#tasks-effect) · [Scope](#scope) · [Task\<T>](#taskt) · [Mutex\<T>](#mutext) · [Lock](#lock) · [Atomic\<T>](#atomict) · [Channel\<T>](#channelt)
 
 ## int
 
@@ -831,7 +831,7 @@ Names from other languages:
 - `subarray`: use `slice(start, end)`, or `slice(start)` to the end: `end` excluded, both clamped
 - `equals`: use `==`
 
-## List<T>
+## List\<T>
 
 An ordered list, `[1, 2, 3]`. A value: assigning or passing one copies it (cheaply, on write). `xs[i]` is a `T?`; `xs[i] = v` and the changing methods need `let mut`. `for x in xs { ... }` loops; `for (i, x) in xs.enumerated()` has the index. `Show` when its items are: `"${xs}"` and `xs.toString()` give `[1, 2]`, `["a", "b"]`.
 
@@ -1070,7 +1070,7 @@ Names from other languages:
 - `intersection`: use `intersect(ys)`
 - `difference`: keep the items the other lacks: `xs.filter((x) => !ys.contains(x))`
 
-## Map<K, V>
+## Map\<K, V>
 
 Keys to values, `["a": 1, "b": 2]` (`[:]` is empty), in insertion order. A value, like a list. `m[k]` is a `V?`; `m[k] = v` sets a key (with `let mut`; `m[k] += 1` is refused, as the key may be missing: `m[k] = (m[k] ?? 0) + 1`). `for (k, v) in m { ... }` loops.
 
@@ -1162,7 +1162,7 @@ assert s.map((x) => x.length()) == none
 assert n.map((x) => if x > 5 { x } else { none }) == none
 ```
 
-## Result<T, E>
+## Result\<T, E>
 
 `Ok(value)` or `Err(error)`; `Result<void, E>` succeeds with `Ok()`. `r?` gives the value, or returns the error from the function (whose error type must be `E`: there is no automatic conversion). `match r { Ok(v) => ..., Err(e) => ... }` reads both. `Show` when `T` and `E` are: `Ok(3)`, `Err("bad")`, `Ok()`.
 
@@ -1781,7 +1781,7 @@ let n = tasks.scope((s) => {
 assert n == 1
 ```
 
-## Task<T>
+## Task\<T>
 
 A running task, from `s.spawn`.
 
@@ -1794,7 +1794,7 @@ let n = tasks.scope((s) => s.spawn(() => 5).join())
 assert n == 5
 ```
 
-## Mutex<T>
+## Mutex\<T>
 
 From `s.mutex(v)`. Changed only by function, so no update is lost; those functions can't use effects, so the lock is never held long. State checked and changed together lives in one Mutex, with the check inside `updateWith`.
 
@@ -1847,7 +1847,7 @@ tasks.scope((s) => {
 })
 ```
 
-## Atomic<T>
+## Atomic\<T>
 
 From `s.atomic(v)`: an int or a bool.
 
@@ -1898,7 +1898,7 @@ tasks.scope((s) => {
 })
 ```
 
-## Channel<T>
+## Channel\<T>
 
 From `s.channel(n)`: a queue of up to `n` items between tasks.
 

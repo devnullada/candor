@@ -4999,7 +4999,7 @@ its `prepare` to get around it.
 
 Pal's call: attaching the same source as the same name again is Ok and changes nothing (the
 data stays), in tests and programs alike; no `sql.detach`. The name given another file is an
-`Err`: "vault is attached already, to <file>: one name, one file".
+`Err`: "vault is attached already, to \<file>: one name, one file".
 
 Small choices: names compare as SQLite does, ignoring case; a file source compares by its
 absolute path (`./vault.db` is `vault.db`), `:memory:` and `file:` URIs as written. Checked in
@@ -6036,6 +6036,22 @@ progress or plans.
   symlink and keeps five releases. Tests: test/site.test.ts runs the page's example.
 - CLAUDE.md is a one-line `@AGENTS.md` import, not a symlink: Windows clones can't make links.
 - install.ps1 renames an installed candor.exe aside before replacing it (it failed over one).
+
+### The docs on the site (card #f5c8af00)
+
+Pal (2026-10-31): "a proper site page… simple but enough, built for developers": the docs on
+the site rather than links out to GitHub.
+
+- `/docs/start`, `/docs/reference`, `/docs/design`, `/docs/trials` render `docs/*.md` from the
+  repo as they are (an Astro content collection over `../docs`), so the page shows the examples
+  the tests check. No copy, nothing hand-curated: `/principles` (#b8ae94b8) stays for later.
+- Links between docs become site links; links into the repo (`../std/http.candor`) go to GitHub
+  (`site/src/doc-links.mjs`).
+- Sidebar, page, and the page's h2/h3 headings; search is Pagefind, a static index built after
+  `astro build`. `/download` lists the release's five binaries and SHA256SUMS. Links end in `/`,
+  as Caddy serves them.
+- Text the docs meant literally, `List<T>` in a heading, was read as an HTML tag (on GitHub
+  too). `docs/reference.md` escapes it now (`src/reference.ts`); `candor doc` prints it as is.
 
 ## Open questions
 

@@ -5,13 +5,17 @@
   "scripts": {
     "prepare-content": "bun scripts/prepare.ts",
     "dev": "bun scripts/prepare.ts && astro dev",
-    "build": "bun scripts/prepare.ts && astro build",
+    "build": "bun scripts/prepare.ts && astro build && pagefind --site dist",
     "preview": "astro preview",
     "deploy": "bun scripts/deploy.ts"
   },
   "dependencies": {
+    "@tailwindcss/typography": "0",
     "@tailwindcss/vite": "4",
     "astro": "5",
     "tailwindcss": "4"
+  },
+  "devDependencies": {
+    "pagefind": "1"
   }
 }

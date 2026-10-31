@@ -3,7 +3,7 @@
   "language": {
     "version": "0.0.31",
     "date": "2026-10-31",
-    "decisions": 215,
+    "decisions": 216,
     "stdModules": [
       "bytes",
       "crypto",
@@ -25,7 +25,7 @@
       "xml"
     ],
     "tests": 899,
-    "compilerLines": 18837
+    "compilerLines": 18843
   },
   "trials": [
     {

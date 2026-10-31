@@ -54,6 +54,6 @@ plugins/candor/     the Claude Code plugin: a `candor` skill (marketplace in .cl
 trials/             agents given app specs or change requests, scored by hidden acceptance tests
                     (trials/README.md)
 trial-numbers/      the trials' figures, for promotion
-site/               candorlanguage.org: one Astro page (`bun run build`, `bun run deploy` in site/);
+site/               candorlanguage.org: the landing page and the docs, in Astro (`bun run build`, `bun run deploy` in site/);
                     its example is checked by test/site.test.ts
 ```

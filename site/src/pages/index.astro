@@ -1,13 +1,10 @@
 ---
 import { Code } from 'astro:components';
-import '../styles/global.css';
+import Base from '../layouts/Base.astro';
+import { docPages } from '../site';
 import numbers from '../../../trial-numbers/numbers.json';
 import rooms from '../examples/rooms.candor?raw';
 import roomsTest from '../examples/rooms_test.candor?raw';
-
-const repo = 'https://github.com/devnullada/candor';
-const blob = `${repo}/blob/master`;
-const version = numbers.language.version;
 
 // The change trial: medians over every run of a language, from numbers.json.
 const change = numbers.change;
@@ -43,43 +40,12 @@ const pillars = [
   ['One Go binary', 'Candor compiles to Go: one native binary, and Go packages through bindings.'],
 ];
 
-const docs = [
-  ['Start', `${blob}/docs/start.md`, 'One page on writing a service, every block of code checked.'],
-  ['Reference', `${blob}/docs/reference.md`, 'Every built-in method and effect operation, with an example that runs.'],
-  ['Design', `${blob}/docs/design.md`, 'The principles, and every decision with its reasons.'],
-  ['Trials', `${blob}/docs/trials.md`, 'Candor against Go, written and changed by AI coders.'],
-];
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Candor: a backend language for AI coders</title>
-    <meta name="description" content="A backend language designed for AI coders. Every function says openly what it does: its effects are part of its signature. Compiles to Go." />
-    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon.ico" sizes="48x48" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
-    <meta property="og:title" content="Candor" />
-    <meta property="og:description" content="A backend language designed for AI coders. Compiles to Go." />
-    <meta property="og:image" content="https://candorlanguage.org/logo-512.png" />
-  </head>
-  <body class="font-sans antialiased">
-    <div class="mx-auto max-w-4xl px-4 sm:px-6">
-      <header class="flex items-center justify-between py-6">
-        <a href="/" class="flex items-center gap-3">
-          <img src="/logo.svg" alt="" width="32" height="32" />
-          <span class="text-xl font-semibold tracking-tight">candor<span class="ml-1.5 inline-block size-1.5 rounded-full bg-accent align-middle"></span></span>
-        </a>
-        <nav class="flex gap-5 text-sm text-muted">
-          <a class="hover:text-fg" href={`${blob}/docs/start.md`}>Docs</a>
-          <a class="hover:text-fg" href={`${repo}/releases/latest`}>Download</a>
-          <a class="hover:text-fg" href={repo}>GitHub</a>
-        </nav>
-      </header>
-
+<Base
+  title="Candor: a backend language for AI coders"
+  description="A backend language designed for AI coders. Every function says openly what it does: its effects are part of its signature. Compiles to Go."
+>
       <main>
         <section class="py-12 sm:py-20">
           <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">A backend language for AI coders.</h1>
@@ -139,6 +105,7 @@ const docs = [
             <code class="font-mono text-fg">candor check</code> carries its fix. In Claude Code:
             <code class="font-mono text-fg">/plugin marketplace add devnullada/candor</code>.
           </p>
+          <p class="mt-3 text-sm"><a class="underline hover:text-accent" href="/download/">Binaries and checksums</a></p>
         </section>
 
         <section class="border-t border-line py-12">
@@ -195,27 +162,20 @@ const docs = [
             </ul>
           </details>
           <p class="mt-4 text-sm text-muted">
-            Candor {change.candor}, {change.results.date}. Every request, run and figure: <a class="underline" href={`${blob}/docs/trials.md`}>docs/trials.md</a>.
+            Candor {change.candor}, {change.results.date}. Every request, run and figure: <a class="underline" href="/docs/trials/">Trials</a>.
           </p>
         </section>
 
         <section class="border-t border-line py-12">
           <h2 class="text-2xl font-semibold tracking-tight">Docs</h2>
           <ul class="mt-6 grid gap-4 sm:grid-cols-2">
-            {docs.map(([name, href, what]) => (
+            {docPages.map((p) => (
               <li>
-                <a class="font-semibold hover:text-accent" href={href}>{name}</a>
-                <p class="mt-1 text-sm text-muted">{what}</p>
+                <a class="font-semibold hover:text-accent" href={`/docs/${p.slug}/`}>{p.name}</a>
+                <p class="mt-1 text-sm text-muted">{p.what}</p>
               </li>
             ))}
           </ul>
         </section>
       </main>
-
-      <footer class="flex flex-wrap justify-between gap-3 border-t border-line py-8 text-sm text-muted">
-        <span>Candor {version}. MIT or Apache-2.0.</span>
-        <span><a class="hover:text-fg" href={repo}>GitHub</a> · <a class="hover:text-fg" href="/llms.txt">llms.txt</a></span>
-      </footer>
-    </div>
-  </body>
-</html>
+</Base>

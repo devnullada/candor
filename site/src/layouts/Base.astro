@@ -1,0 +1,57 @@
+---
+// Every page: head, header, footer. `wide` widens the frame for the docs' three columns.
+import '../styles/global.css';
+import { repo, version } from '../site';
+
+interface Props {
+  title: string;
+  description: string;
+  wide?: boolean;
+}
+const { title, description, wide = false } = Astro.props;
+const path = Astro.url.pathname;
+const nav = [
+  ['Docs', '/docs/start/', path.startsWith('/docs')],
+  ['Download', '/download/', path.startsWith('/download')],
+  ['GitHub', repo, false],
+] as const;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={new URL(path, Astro.site)} />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="https://candorlanguage.org/logo-512.png" />
+    <slot name="head" />
+  </head>
+  <body class="font-sans antialiased">
+    <div class:list={['mx-auto px-4 sm:px-6', wide ? 'max-w-7xl' : 'max-w-4xl']}>
+      <header class="flex items-center justify-between py-6">
+        <a href="/" class="flex items-center gap-3">
+          <img src="/logo.svg" alt="" width="32" height="32" />
+          <span class="text-xl font-semibold tracking-tight">candor<span class="ml-1.5 inline-block size-1.5 rounded-full bg-accent align-middle"></span></span>
+        </a>
+        <nav class="flex gap-5 text-sm text-muted">
+          {nav.map(([name, href, here]) => <a class:list={['hover:text-fg', here && 'text-fg']} href={href}>{name}</a>)}
+        </nav>
+      </header>
+
+      <slot />
+
+      <footer class="flex flex-wrap justify-between gap-3 border-t border-line py-8 text-sm text-muted">
+        <span>Candor {version}. MIT or Apache-2.0.</span>
+        <span><a class="hover:text-fg" href={repo}>GitHub</a> · <a class="hover:text-fg" href="/llms.txt">llms.txt</a></span>
+      </footer>
+    </div>
+  </body>
+</html>

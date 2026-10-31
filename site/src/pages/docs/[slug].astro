@@ -1,0 +1,64 @@
+---
+// /docs/<page>: docs/<page>.md from the repo as it is, with the sidebar, search (Pagefind,
+// built after astro build) and the page's headings.
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { agentFiles, blob, docPages } from '../../site';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const page = docPages.find((p) => p.slug === entry.id)!;
+const title = headings.find((h) => h.depth === 1)?.text ?? page.name;
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+<Base title={`${title} · Candor`} description={page.what} wide>
+  <link slot="head" rel="stylesheet" href="/pagefind/pagefind-ui.css" />
+  <script slot="head" is:inline src="/pagefind/pagefind-ui.js"></script>
+
+  <div class="grid gap-8 pb-16 lg:grid-cols-[10rem_minmax(0,1fr)] xl:grid-cols-[10rem_minmax(0,1fr)_14rem]">
+    <aside class="text-sm lg:sticky lg:top-6 lg:self-start">
+      <ul class="flex flex-wrap gap-x-5 gap-y-2 lg:flex-col">
+        {docPages.map((p) => (
+          <li><a class:list={['hover:text-fg', p.slug === entry.id ? 'font-semibold text-fg' : 'text-muted']} href={`/docs/${p.slug}/`}>{p.name}</a></li>
+        ))}
+        <li><a class="text-muted hover:text-fg" href="/download/">Download</a></li>
+      </ul>
+      <p class="mt-6 hidden text-xs uppercase tracking-wide text-muted lg:block">For agents</p>
+      <ul class="mt-2 hidden flex-col gap-2 font-mono text-xs lg:flex">
+        {agentFiles.map((f) => <li><a class="text-muted hover:text-fg" href={f.href}>{f.name}</a></li>)}
+      </ul>
+    </aside>
+
+    <main class="min-w-0">
+      <div id="search" class="mb-8"></div>
+      <article data-pagefind-body class="prose max-w-none">
+        <Content />
+      </article>
+      <p class="mt-12 border-t border-line pt-6 text-sm text-muted">
+        This page is <a class="underline hover:text-fg" href={`${blob}/docs/${entry.id}.md`}>docs/{entry.id}.md</a> in the repo{entry.id === 'start' || entry.id === 'reference' ? ', and every example on it is checked by the tests' : ''}.
+      </p>
+    </main>
+
+    <nav class="hidden text-sm xl:sticky xl:top-6 xl:block xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto">
+      <p class="text-xs uppercase tracking-wide text-muted">On this page</p>
+      <ul class="mt-3 space-y-1.5">
+        {toc.map((h) => (
+          <li class:list={[h.depth === 3 && 'pl-3']}><a class="block text-muted hover:text-fg" href={`#${h.slug}`}>{h.text}</a></li>
+        ))}
+      </ul>
+    </nav>
+  </div>
+
+  <script is:inline>
+    // Search needs the index Pagefind writes after a build; under `astro dev` it isn't there.
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof PagefindUI === 'function') new PagefindUI({ element: '#search', showSubResults: true, showImages: false });
+    });
+  </script>
+</Base>

@@ -1,0 +1,70 @@
+---
+// /download: the current release's binaries, from GitHub releases. The names follow
+// tools/release.ts.
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import { repo, version } from '../site';
+
+const release = `${repo}/releases/download/v${version}`;
+const builds = [
+  ['Windows', 'x64', 'candor-windows-x64.exe'],
+  ['macOS', 'Apple silicon', 'candor-darwin-arm64'],
+  ['macOS', 'Intel', 'candor-darwin-x64'],
+  ['Linux', 'x64', 'candor-linux-x64'],
+  ['Linux', 'arm64', 'candor-linux-arm64'],
+];
+const themes = { light: 'github-light', dark: 'github-dark' } as const;
+---
+
+<Base title="Download · Candor" description={`Candor ${version}: one binary for Windows, macOS and Linux.`}>
+  <main class="pb-16">
+    <section class="py-12">
+      <h1 class="text-4xl font-semibold tracking-tight">Download</h1>
+      <p class="mt-4 max-w-2xl text-muted">
+        Candor {version}: the compiler is one binary. Programs it builds need <a class="underline hover:text-fg" href="https://go.dev/dl/">Go</a> 1.22 or later.
+      </p>
+    </section>
+
+    <section class="border-t border-line py-10">
+      <h2 class="text-xl font-semibold tracking-tight">Install</h2>
+      <p class="mt-3 text-sm text-muted">macOS and Linux, into <code class="font-mono text-fg">~/.candor/bin</code> (Windows too):</p>
+      <div class="mt-2 min-w-0"><Code code={`curl -fsSL https://raw.githubusercontent.com/devnullada/candor/master/install.sh | sh`} lang="sh" themes={themes} defaultColor="dark" /></div>
+      <p class="mt-5 text-sm text-muted">Windows, in PowerShell:</p>
+      <div class="mt-2 min-w-0"><Code code={`irm https://raw.githubusercontent.com/devnullada/candor/master/install.ps1 | iex`} lang="powershell" themes={themes} defaultColor="dark" /></div>
+      <p class="mt-5 text-sm text-muted">Then check it:</p>
+      <div class="mt-2 min-w-0"><Code code={`candor version\ncandor guide`} lang="sh" themes={themes} defaultColor="dark" /></div>
+    </section>
+
+    <section class="border-t border-line py-10">
+      <h2 class="text-xl font-semibold tracking-tight">Binaries</h2>
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full text-sm">
+          <tbody>
+            {builds.map(([os, arch, file]) => (
+              <tr class="border-b border-line">
+                <td class="py-2 pr-4">{os}</td>
+                <td class="py-2 pr-4 text-muted">{arch}</td>
+                <td class="py-2 text-right font-mono"><a class="hover:text-accent" href={`${release}/${file}`}>{file}</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-sm text-muted">
+        Checksums: <a class="font-mono underline hover:text-fg" href={`${release}/SHA256SUMS`}>SHA256SUMS</a>. Every release:
+        <a class="underline hover:text-fg" href={`${repo}/releases`}>GitHub releases</a>.
+      </p>
+    </section>
+
+    <section class="border-t border-line py-10">
+      <h2 class="text-xl font-semibold tracking-tight">With an AI coder</h2>
+      <p class="mt-3 max-w-2xl text-sm text-muted">
+        Your agent won't know Candor from training; the compiler teaches it. <code class="font-mono text-fg">candor guide</code> prints
+        the language on one page, <code class="font-mono text-fg">candor doc</code> a type's methods, and every error from
+        <code class="font-mono text-fg">candor check</code> carries its fix. In Claude Code:
+      </p>
+      <div class="mt-3 min-w-0"><Code code={`/plugin marketplace add devnullada/candor`} lang="sh" themes={themes} defaultColor="dark" /></div>
+      <p class="mt-4 text-sm text-muted">Next: <a class="underline hover:text-fg" href="/docs/start/">Start</a>.</p>
+    </section>
+  </main>
+</Base>

@@ -806,10 +806,17 @@ export function renderReference(): string {
     '[`std/url.candor`](../std/url.candor), [`std/bytes.candor`](../std/bytes.candor), [`std/hash.candor`](../std/hash.candor),',
     '[`std/time.candor`](../std/time.candor), [`std/flags.candor`](../std/flags.candor).',
     '',
-    reference.map((s) => `[${s.title}](#${anchor(s.title)})`).join(' · '),
+    reference.map((s) => `[${md(s.title)}](#${anchor(s.title)})`).join(' · '),
     '',
   ];
-  return [...head, ...reference.map(renderSection)].join('\n').replace(/\n+$/, '\n');
+  // The heading's `<T>` would be read as an HTML tag; `candor doc` prints the title unescaped.
+  const sections = reference.map((s) => renderSection(s).replace(/^## .*/, `## ${md(s.title)}`));
+  return [...head, ...sections].join('\n').replace(/\n+$/, '\n');
+}
+
+/** A title as Markdown text: `<` escaped, so `List<T>` isn't an HTML tag. */
+function md(title: string): string {
+  return title.replace(/</g, '\\<');
 }
 
 /** GitHub's heading anchor. */
