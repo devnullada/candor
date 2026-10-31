@@ -1,0 +1,13 @@
+module rooms
+
+import "http"
+import "sql"
+
+// In a test, SQLite runs in memory: no setup, no mocks.
+test "lists the rooms" {
+  assert migrate() == Ok()
+  assert sql.insert("INSERT INTO rooms (name) VALUES ('Lima')") == Ok(1)
+  let res = handle(http.Request { method: "GET", path: "/rooms", query: [:], headers: [:], body: "" })
+  assert res.status == 200
+  assert res.body == """[{"id":1,"name":"Lima"}]"""
+}

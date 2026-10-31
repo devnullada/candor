@@ -1,0 +1,221 @@
+---
+import { Code } from 'astro:components';
+import '../styles/global.css';
+import numbers from '../../../trial-numbers/numbers.json';
+import rooms from '../examples/rooms.candor?raw';
+import roomsTest from '../examples/rooms_test.candor?raw';
+
+const repo = 'https://github.com/devnullada/candor';
+const blob = `${repo}/blob/master`;
+const version = numbers.language.version;
+
+// The change trial: medians over every run of a language, from numbers.json.
+const change = numbers.change;
+const go = change.results.byLang.go;
+const cd = change.results.byLang.candor;
+const k = (n: number) => `${Math.round(n / 1000)}k`;
+
+// The same-spec trial: one run per app and language.
+const same = numbers.trials.find((t) => t.id === 'same-spec')!;
+const sameOf = (lang: string) => same.results.filter((r: any) => r.lang === lang);
+const passedAll = (lang: string) => sameOf(lang).filter((r: any) => r.failed === 0).length;
+const cost = (lang: string) => sameOf(lang).reduce((s: number, r: any) => s + (r.dollars ?? 0), 0);
+
+const changeRows: [string, string, string][] = [
+  ['Runs that passed every hidden test', `${go.passedAll}/${go.runs}`, `${cd.passedAll}/${cd.runs}`],
+  ['Refactors that kept the shape asked for', `${go.shapePassed}/${go.refactors}`, `${cd.shapePassed}/${cd.refactors}`],
+  ['Turns, median', `${go.turns}`, `${cd.turns}`],
+  ['Compiler runs, median', `${go.compilerRuns}`, `${cd.compilerRuns}`],
+  ['Context at the first edit, median', k(go.contextTokens), k(cd.contextTokens)],
+  ['Tokens in all, median', k(go.tokens), k(cd.tokens)],
+  ['Cost, all runs', `$${go.dollars.toFixed(2)}`, `$${cd.dollars.toFixed(2)}`],
+];
+const sameRows: [string, string, string][] = [
+  ['Apps that passed every acceptance test', `${passedAll('go')}/${sameOf('go').length}`, `${passedAll('candor')}/${sameOf('candor').length}`],
+  ['Cost, all runs', `$${cost('go').toFixed(2)}`, `$${cost('candor').toFixed(2)}`],
+];
+
+const pillars = [
+  ['Effects in the signature', 'A function marked `uses sql` may use the database and nothing else. Printing from it is a compile error.'],
+  ['Errors are values', '`Result<T, E>`, `?` to pass one on, and an unused Result is an error. No exceptions.'],
+  ['Fakes built in', 'In a test every effect is a fake: SQLite and files in memory, a virtual clock, seeded randomness, captured output. No mocking library.'],
+  ['Errors that carry their fix', '`candor check` reports every error at once, each with a stable code and a help line written for the agent that reads it.'],
+  ['One Go binary', 'Candor compiles to Go: one native binary, and Go packages through bindings.'],
+];
+
+const docs = [
+  ['Start', `${blob}/docs/start.md`, 'One page on writing a service, every block of code checked.'],
+  ['Reference', `${blob}/docs/reference.md`, 'Every built-in method and effect operation, with an example that runs.'],
+  ['Design', `${blob}/docs/design.md`, 'The principles, and every decision with its reasons.'],
+  ['Trials', `${blob}/docs/trials.md`, 'Candor against Go, written and changed by AI coders.'],
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Candor: a backend language for AI coders</title>
+    <meta name="description" content="A backend language designed for AI coders. Every function says openly what it does: its effects are part of its signature. Compiles to Go." />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
+    <meta property="og:title" content="Candor" />
+    <meta property="og:description" content="A backend language designed for AI coders. Compiles to Go." />
+    <meta property="og:image" content="https://candorlanguage.org/logo-512.png" />
+  </head>
+  <body class="font-sans antialiased">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6">
+      <header class="flex items-center justify-between py-6">
+        <a href="/" class="flex items-center gap-3">
+          <img src="/logo.svg" alt="" width="32" height="32" />
+          <span class="text-xl font-semibold tracking-tight">candor<span class="ml-1.5 inline-block size-1.5 rounded-full bg-accent align-middle"></span></span>
+        </a>
+        <nav class="flex gap-5 text-sm text-muted">
+          <a class="hover:text-fg" href={`${blob}/docs/start.md`}>Docs</a>
+          <a class="hover:text-fg" href={`${repo}/releases/latest`}>Download</a>
+          <a class="hover:text-fg" href={repo}>GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="py-12 sm:py-20">
+          <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">A backend language for AI coders.</h1>
+          <p class="mt-5 max-w-2xl text-lg text-muted">
+            Every function says openly what it does: the effects it may perform are part of its signature.
+            TypeScript-shaped syntax, Rust's discipline, compiles to Go.
+          </p>
+          <div class="mt-8">
+            <Code code={`fn handle(req: http.Request) -> http.Response uses sql`} lang="rust" themes={{ light: 'github-light', dark: 'github-dark' }} defaultColor="dark" />
+          </div>
+          <p class="mt-3 text-sm text-muted">This handler may use the database, and nothing else. The compiler holds it to that.</p>
+        </section>
+
+        <section class="border-t border-line py-12">
+          <h2 class="text-2xl font-semibold tracking-tight">Why</h2>
+          <p class="mt-3 max-w-2xl text-muted">
+            An AI coder writes code that people review rather than write, and reads code it didn't write.
+            Candor puts what matters where both can see it.
+          </p>
+          <dl class="mt-8 grid gap-6 sm:grid-cols-2">
+            {pillars.map(([title, text]) => (
+              <div>
+                <dt class="font-semibold"><span class="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle"></span>{title}</dt>
+                <dd class="mt-1 text-sm text-muted">{text.split('`').map((part, i) => (i % 2 ? <code class="font-mono text-fg">{part}</code> : part))}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section class="border-t border-line py-12">
+          <h2 class="text-2xl font-semibold tracking-tight">A service and its test</h2>
+          <p class="mt-3 max-w-2xl text-muted">JSON over HTTP from SQLite. The test runs against an in-memory database, with no setup.</p>
+          <div class="mt-6 grid min-w-0 gap-4 [&>*]:min-w-0">
+            <div>
+              <p class="mb-2 font-mono text-xs text-muted">rooms.candor</p>
+              <Code code={rooms.trim()} lang="rust" themes={{ light: 'github-light', dark: 'github-dark' }} defaultColor="dark" />
+            </div>
+            <div>
+              <p class="mb-2 font-mono text-xs text-muted">rooms_test.candor</p>
+              <Code code={roomsTest.trim()} lang="rust" themes={{ light: 'github-light', dark: 'github-dark' }} defaultColor="dark" />
+            </div>
+          </div>
+        </section>
+
+        <section class="border-t border-line py-12">
+          <h2 class="text-2xl font-semibold tracking-tight">Install</h2>
+          <p class="mt-3 max-w-2xl text-muted">
+            One binary for Windows, macOS and Linux. Programs build with <a class="underline" href="https://go.dev/dl/">Go</a> 1.22+.
+          </p>
+          <div class="mt-6 grid min-w-0 gap-3 [&>*]:min-w-0">
+            <Code code={`curl -fsSL https://raw.githubusercontent.com/devnullada/candor/master/install.sh | sh`} lang="sh" themes={{ light: 'github-light', dark: 'github-dark' }} defaultColor="dark" />
+            <Code code={`irm https://raw.githubusercontent.com/devnullada/candor/master/install.ps1 | iex`} lang="powershell" themes={{ light: 'github-light', dark: 'github-dark' }} defaultColor="dark" />
+          </div>
+          <p class="mt-4 max-w-2xl text-sm text-muted">
+            Your agent won't know Candor from training; the compiler teaches it. <code class="font-mono text-fg">candor guide</code> prints
+            the language on one page, <code class="font-mono text-fg">candor doc</code> a type's methods, and every error from
+            <code class="font-mono text-fg">candor check</code> carries its fix. In Claude Code:
+            <code class="font-mono text-fg">/plugin marketplace add devnullada/candor</code>.
+          </p>
+        </section>
+
+        <section class="border-t border-line py-12">
+          <h2 class="text-2xl font-semibold tracking-tight">Trials</h2>
+          <p class="mt-3 max-w-2xl text-muted">
+            {change.agent} ({change.model}) carried out {Object.keys(change.requests).length} requests (features, bugs, changes
+            and refactors) to three open-source Go codebases and to their Candor ports, and wrote six small apps
+            from a spec in each language. {change.how}
+          </p>
+          <div class="mt-6 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-line text-left text-muted">
+                  <th class="py-2 pr-4 font-normal">Changing a codebase</th>
+                  <th class="py-2 pr-4 text-right font-normal">Go</th>
+                  <th class="py-2 text-right font-normal">Candor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {changeRows.map(([what, g, c]) => (
+                  <tr class="border-b border-line">
+                    <td class="py-2 pr-4">{what}</td>
+                    <td class="py-2 pr-4 text-right font-mono">{g}</td>
+                    <td class="py-2 text-right font-mono">{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-8 overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-line text-left text-muted">
+                  <th class="py-2 pr-4 font-normal">Writing an app from a spec</th>
+                  <th class="py-2 pr-4 text-right font-normal">Go</th>
+                  <th class="py-2 text-right font-normal">Candor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sameRows.map(([what, g, c]) => (
+                  <tr class="border-b border-line">
+                    <td class="py-2 pr-4">{what}</td>
+                    <td class="py-2 pr-4 text-right font-mono">{g}</td>
+                    <td class="py-2 text-right font-mono">{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <details class="mt-6 text-sm text-muted">
+            <summary class="cursor-pointer text-fg">The catches</summary>
+            <ul class="mt-3 list-disc space-y-2 pl-5">
+              {[...change.catches, ...same.catches].map((c) => <li>{c}</li>)}
+            </ul>
+          </details>
+          <p class="mt-4 text-sm text-muted">
+            Candor {change.candor}, {change.results.date}. Every request, run and figure: <a class="underline" href={`${blob}/docs/trials.md`}>docs/trials.md</a>.
+          </p>
+        </section>
+
+        <section class="border-t border-line py-12">
+          <h2 class="text-2xl font-semibold tracking-tight">Docs</h2>
+          <ul class="mt-6 grid gap-4 sm:grid-cols-2">
+            {docs.map(([name, href, what]) => (
+              <li>
+                <a class="font-semibold hover:text-accent" href={href}>{name}</a>
+                <p class="mt-1 text-sm text-muted">{what}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </main>
+
+      <footer class="flex flex-wrap justify-between gap-3 border-t border-line py-8 text-sm text-muted">
+        <span>Candor {version}. MIT or Apache-2.0.</span>
+        <span><a class="hover:text-fg" href={repo}>GitHub</a> · <a class="hover:text-fg" href="/llms.txt">llms.txt</a></span>
+      </footer>
+    </div>
+  </body>
+</html>

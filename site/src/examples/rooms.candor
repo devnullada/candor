@@ -1,0 +1,25 @@
+module rooms
+
+import "http"
+import "json"
+import "sql"
+
+struct Room {
+  id: int
+  name: string
+}
+impl Json for Room
+impl Row for Room
+
+fn migrate() -> Result<void, sql.Error> uses sql {
+  sql.exec("CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")?
+  return Ok()
+}
+
+// `uses sql`: this handler may touch the database, and nothing else.
+fn handle(req: http.Request) -> http.Response uses sql {
+  return match sql.query<Room>("SELECT id, name FROM rooms ORDER BY id") {
+    Ok(rooms) => http.jsonResponse(200, rooms),
+    Err(e) => http.textResponse(500, "${e}"),
+  }
+}
