@@ -283,6 +283,100 @@ export function reap(dir: string) {
   Bun.spawnSync(['powershell', '-NoProfile', '-Command', `Get-Process | Where-Object { $_.Path -like '${under}\\*' } | Stop-Process -Force`]);
 }
 
+/** Subscription use a run reported, 0 to 1, as of its last reading (#5971a848). */
+export interface Limits {
+  fiveHour: number | null;
+  sevenDay: number | null;
+}
+
+/** The status a runner exits with when a limit cut its run off: not a failure of the run. */
+export const limitExit = 75;
+
+function rateEvents(transcript: string[]): any[] {
+  const events: any[] = [];
+  for (const line of transcript) {
+    try {
+      const msg = JSON.parse(line);
+      if (msg.type === 'rate_limit_event' && msg.rate_limit_info) events.push(msg.rate_limit_info);
+    } catch {
+      // stderr lines, if they were mixed in
+    }
+  }
+  return events;
+}
+
+/** The last subscription readings in a transcript; null if it has none (an API key, or agy). */
+export function limits(transcript: string[]): Limits | null {
+  const windows = rateEvents(transcript).map((e) => e.unifiedWindows).filter(Boolean);
+  const last = windows.at(-1);
+  return last ? { fiveHour: last.five_hour?.utilization ?? null, sevenDay: last.seven_day?.utilization ?? null } : null;
+}
+
+/**
+ * Why a limit cut this run off, or null if none did. Such a run says nothing about the language,
+ * so it mustn't be scored. No real rejection has been seen yet: this covers the rejected status,
+ * the assistant message's error and the failed result's text.
+ */
+export function stoppedByLimit(transcript: string[]): string | null {
+  const rejected = rateEvents(transcript).find((e) => e.status === 'rejected');
+  if (rejected) {
+    const at = rejected.resetsAt ? `, resets ${new Date(rejected.resetsAt * 1000).toISOString()}` : '';
+    return `${rejected.rateLimitType ?? 'usage'} limit reached${at}`;
+  }
+  for (const line of transcript) {
+    let msg: any;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (msg.type === 'assistant' && msg.error === 'rate_limit') return 'rate limit reached';
+    if (msg.type === 'result' && msg.is_error && /hit your .*limit|usage limit|rate limit|limit reached/i.test(String(msg.result ?? ''))) return String(msg.result);
+  }
+  return null;
+}
+
+/** Whether `sam list` output says a service is stopped; null if it doesn't list the service. */
+export function samStopped(list: string, service: string): boolean | null {
+  const plain = list.replace(/\x1b\[[0-9;]*m/g, '');
+  const name = service.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = plain.match(new RegExp(`^\\s*${name}\\s+([A-Z]+)\\b`, 'm'));
+  return m ? m[1] === 'STOPPED' : null;
+}
+
+/**
+ * Whether a run may start at this local time: trials run from 02:00 to 05:00 (Pal, 2026-11-02).
+ * None starts after 04:45, so a run of usual length is over by 05:00.
+ */
+export function inTrialHours(now: Date): boolean {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes >= 2 * 60 && minutes < 4 * 60 + 45;
+}
+
+/**
+ * Waits for trial hours, and while ComfyUI runs: then Pal is rendering and needs the CPU quiet
+ * (#5971a848). Call before starting each run. If sam can't say, this throws: a guess could
+ * disturb a render.
+ */
+export async function holdForTurn(service = 'CIP - ComfyUI', everyMs = 60_000) {
+  let told = '';
+  const say = (why: string) => {
+    if (told !== why) console.log(why);
+    told = why;
+  };
+  for (;;) {
+    if (!inTrialHours(new Date())) say('Outside trial hours: holding until 02:00.');
+    else {
+      const sam = Bun.spawnSync(['sam', 'list'], { stdout: 'pipe', stderr: 'pipe' });
+      const stopped = samStopped(sam.stdout.toString(), service);
+      if (stopped === null) throw new Error(`sam doesn't list "${service}": not starting a run. ${sam.stderr.toString().trim()}`);
+      if (stopped) return;
+      say(`${service} is running: holding until it stops.`);
+    }
+    await Bun.sleep(everyMs);
+  }
+}
+
 /** Starts the agent in `dir` and collects its stdout lines until it exits. */
 export async function runAgent(cmd: string[], dir: string, env: Record<string, string | undefined>) {
   const proc = Bun.spawn(cmd, { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });

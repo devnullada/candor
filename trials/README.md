@@ -56,6 +56,10 @@ agent's Bash commands that build, test or run the program (`compiler` in `run.ts
   sandbox and a 45-minute limit; no budget, and it reports no cost. Each agent reads its own
   transcript: tools, compiler runs, tokens, `reading`. Kimi Code ran card 093's trials and was
   dropped on 2026-10-28.
+- Runs use a subscription shared with other work (#5971a848). Each run starts only between
+  02:00 and 04:45 local time, waits while sam lists `CIP - ComfyUI` as running, and stops if
+  sam can't say. `result.json` keeps the run's last
+  `limits` readings. A run a limit cut off isn't kept or scored, and the runner exits 75.
 - Then the app is built and the acceptance tests run. `trials/runs/<app>/<lang>/<stamp>/` keeps
   the sources, `log.md`, `result.json` (time, cost, tokens, turns, tool and compiler calls,
   `reading`: the context the first file was written in, lines, tests passed and which failed) and `transcript.jsonl`. Runs stay on the machine that made them (`.gitignore`).

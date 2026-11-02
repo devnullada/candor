@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { type Agent, agentArg, reading, reap, runAgent } from './agent';
+import { type Agent, agentArg, holdForTurn, limitExit, limits, reading, reap, runAgent, stoppedByLimit } from './agent';
 
 const trials = import.meta.dir;
 const repo = path.dirname(trials);
@@ -165,6 +165,7 @@ function stamp(): string {
 }
 
 async function trial(app: string, lang: Lang, agent: Agent, model: string, budget: string) {
+  await holdForTurn();
   const id = stamp();
   const dir = path.join(work, `${app}-${lang.name}-${id}`);
   mkdirSync(dir, { recursive: true });
@@ -178,6 +179,14 @@ async function trial(app: string, lang: Lang, agent: Agent, model: string, budge
   const started = Date.now();
   const { transcript, stderr } = await runAgent(agent.command(prompt(lang), model, budget), dir, env);
   const wallMs = Date.now() - started;
+  const cut = stoppedByLimit(transcript);
+  if (cut) {
+    // Says nothing about the language: not kept, not scored, and a batch stops here.
+    console.error(`${app}/${lang.name}: not scored: ${cut}`);
+    rmSync(keep, { recursive: true, force: true });
+    gone(dir);
+    process.exit(limitExit);
+  }
   writeFileSync(path.join(keep, 'transcript.jsonl'), transcript.join('\n') + '\n');
   finish(app, lang, agent, model, dir, keep, provided, started, wallMs, transcript, stderr);
   // trials/runs keeps the sources, log and transcript; --keep leaves the directory, for `recover`.
@@ -219,6 +228,7 @@ function finish(app: string, lang: Lang, agent: Agent, model: string, dir: strin
     tools,
     compiler,
     reading: reading(transcript, agent),
+    limits: limits(transcript),
     lines,
     acceptance,
     ...(run ? {} : { stderr: stderr.slice(0, 4000) }),
