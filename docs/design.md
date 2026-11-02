@@ -6056,6 +6056,18 @@ the site rather than links out to GitHub.
   one sha256.no's form uses (Candor, Zoho's API); Caddy proxies `/api/contact` to it. No service
   in this repo. Bugs still go to GitHub issues, and the page says so.
 
+### Trial runs on a shared subscription (card #5971a848)
+
+Trials now share a subscription with other work (about a tenth of it is theirs), so the runners
+guard it, in `trials/agent.ts`, for both runners. A run starts only between 02:00 and 04:45 local
+time, so that one of usual length is over by 05:00. It waits while sam lists `CIP - ComfyUI` as
+running, since a render needs the CPU, and stops if sam can't say. `result.json` keeps the last
+five-hour and seven-day readings from the transcript's `rate_limit_event`, so a batch can measure
+what it used. A run a limit cut off says nothing about the language: it isn't kept or scored, and
+the runner exits 75 so a batch stops there. No real rejection has been seen yet, so that shape is
+read from the event's status, the assistant's error and the failed result's text.
+`test/trial-limits.test.ts` covers the hours, the readings, the cut-off and the sam parsing.
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,
