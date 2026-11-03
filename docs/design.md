@@ -6082,7 +6082,7 @@ that isn't ready shows an expected figure with a label, which replaces measured 
 - Expected figures say what they rest on. Cost after the first edit is estimated from the kept
   transcripts, and Opus's cost per app scales Sonnet's by the requests both ran. Side-effect answers
   and tokens are a guess with no runs behind them.
-- Green, the logo's colour, marks what the language does today. Amber is the one added colour and
+- Green, the logo's colour, marks what the language does today. Purple is the one added colour and
   marks only what isn't proven yet: an Expected label, or the claim that changes get cheaper and safer.
 
 ## Open questions
