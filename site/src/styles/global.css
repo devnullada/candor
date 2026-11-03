@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Dark first, light when the system asks. The dot's green is the only accent. */
+/* Dark first, light when the system asks. The logo's green is the accent; amber marks only what
+   isn't proven yet (an expected figure, a claim under test). */
 :root {
   --bg: #0a0a0a;
   --fg: #e5e5e5;
@@ -9,6 +10,7 @@
   --line: #262626;
   --panel: #141414;
   --accent: #34d399;
+  --unproven: #fbbf24;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -19,6 +21,7 @@
     --line: #e5e5e5;
     --panel: #f5f5f5;
     --accent: #059669;
+    --unproven: #b45309;
     color-scheme: light;
   }
 }
@@ -30,6 +33,7 @@
   --color-line: var(--line);
   --color-panel: var(--panel);
   --color-accent: var(--accent);
+  --color-unproven: var(--unproven);
 }
 
 html {

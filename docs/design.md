@@ -6068,6 +6068,23 @@ the runner exits 75 so a batch stops there. No real rejection has been seen yet,
 read from the event's status, the assistant's error and the failed result's text.
 `test/trial-limits.test.ts` covers the hours, the readings, the cut-off and the sam parsing.
 
+### The front page leads with benefits and numbers (card #5dd093da)
+
+Pal's calls (2026-11-03): candorlanguage.org's front page is the primary place to look for progress
+on the pitch numbers. That replaces the launch rule of nothing about progress or plans. A number
+that isn't ready shows an expected figure with a label, which replaces measured values only.
+
+- Below the hero: the benefits as callouts, then the four agreed numbers, Candor against Go, the
+  held-out trial's progress, the other change-trial measures and every catch.
+- `site/src/headline.ts` works the figures out from `numbers.json`, whose `headline` block holds the
+  definitions, expected figures, stages and catches. A figure starting `~` must carry the label, and
+  `test/numbers.test.ts` checks that.
+- Expected figures say what they rest on. Cost after the first edit is estimated from the kept
+  transcripts, and Opus's cost per app scales Sonnet's by the requests both ran. Side-effect answers
+  and tokens are a guess with no runs behind them.
+- Green, the logo's colour, marks what the language does today. Amber is the one added colour and
+  marks only what isn't proven yet: an Expected label, or the claim that changes get cheaper and safer.
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,

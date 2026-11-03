@@ -1,5 +1,5 @@
 {
-  "about": "Figures for promotion: candorlanguage.org reads this file, and the README's Numbers section once it has one. `language` and each trial's `results` are filled in by `bun run numbers`; the rest is written by hand. Every claim carries its catches, so nothing says more than was measured.",
+  "about": "Figures for promotion: candorlanguage.org reads this file, and the README's Numbers section once it has one. `language` and each trial's `results` are filled in by `bun run numbers`; the rest is written by hand. Every claim carries its catches, so nothing says more than was measured; `headline.expected` holds figures not measured yet, and the site marks them Expected.",
   "language": {
     "version": "0.0.31",
     "date": "2026-10-31",
@@ -26,6 +26,59 @@
     ],
     "tests": 899,
     "compilerLines": 18843
+  },
+  "headline": {
+    "updated": "2026-11-03",
+    "how": "Opus, one frozen Candor version, Go as the only baseline, on five new apps never used to tune the docs. Specs, requests and hidden tests are committed before any run, and the results are published as they stand.",
+    "numbers": [
+      {
+        "id": "accepted",
+        "title": "Changes accepted first time",
+        "what": "One run, no questions asked: every hidden test passes, no shared test breaks, and a refactor keeps the shape asked for."
+      },
+      {
+        "id": "cost",
+        "title": "Cost per accepted change",
+        "what": "What all of a language's runs cost, divided by the changes accepted, at API prices."
+      },
+      {
+        "id": "effects",
+        "title": "Side-effect questions answered",
+        "what": "Given a diff and its codebase, what side effects does the change add? Scored against a known answer, with the tokens it took."
+      },
+      {
+        "id": "newApp",
+        "title": "Cost to write a new app",
+        "what": "One run per app from a spec, at API prices. The model knows Go, and learns Candor from its docs in the run."
+      }
+    ],
+    "expected": {
+      "afterEdit": {
+        "basis": "Estimated: each run's calls after its first edit, at list price ratios, from the kept transcripts of the runs above. The runner doesn't report this yet.",
+        "sonnet": { "go": 0.477, "candor": 0.382 },
+        "opus": { "go": 0.506, "candor": 0.571 }
+      },
+      "effects": {
+        "basis": "A guess: no run has measured this. Tokens lean to Go because Candor's Opus runs have read more so far.",
+        "correct": { "go": 85, "candor": 95 },
+        "tokens": { "go": 80000, "candor": 100000 }
+      },
+      "newAppBasis": "Estimated: the Sonnet cost per app, times what Opus cost against Sonnet on the four requests both ran."
+    },
+    "stages": [
+      { "title": "Calibrate Opus on supercronic", "done": 0, "planned": 24 },
+      { "title": "Build the five new apps, in both languages", "done": 0, "planned": 10 },
+      { "title": "Change requests, first pass", "done": 0, "planned": 30 },
+      { "title": "Side-effect review, first pass", "done": 0, "planned": 30, "about": true }
+    ],
+    "later": "Passes two and three repeat the change requests and the review, as the budget allows.",
+    "catches": [
+      "Figures marked Expected are not measurements, and the trial replaces them. The side-effect figures have no runs behind them at all.",
+      "None of these figures come from the new trial. Their apps and requests were also used while tuning Candor's docs; the new trial's five apps won't be.",
+      "In the change trial Go's codebases were written by people and Candor's were ported by a model, which may suit a model reading them. In the new trial a model writes both.",
+      "The Opus figures are from Candor 0.0.29 with one run per request, so a single miss would move a pass rate by a quarter. The Sonnet figures are from a later version, and the two languages ran on different days.",
+      "Dollars are the API-equivalent cost Claude Code reports, not what a subscription charges."
+    ]
   },
   "trials": [
     {

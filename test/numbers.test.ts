@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { headlineCards } from '../site/src/headline';
 import { begin, changeBegin, changeEnd, compareBegin, compareEnd, end, load, render, renderChange, renderCompare, renderSameSpec, sameBegin, sameEnd, stdModules } from '../tools/numbers';
 
 // trial-numbers/numbers.json feeds the README (once it has a Numbers block again) and the site;
@@ -30,6 +31,23 @@ describe.skipIf(!!process.env.CANDOR_NUMBERS)('the numbers', () => {
     }
     for (const p of n.ports) expect(p.catches.length).toBeGreaterThan(0);
     expect(n.change.catches.length).toBeGreaterThan(0);
+  });
+
+  test("the front page's numbers each show figures, and an expected one says so and why", () => {
+    const cards = headlineCards(n);
+    expect(cards.map((c) => c.id)).toEqual(['accepted', 'cost', 'effects', 'newApp']);
+    for (const c of cards) {
+      expect(c.rows.length).toBeGreaterThan(0);
+      for (const r of c.rows) {
+        expect(r.go).toMatch(/\d/);
+        expect(r.candor).toMatch(/\d/);
+        // A `~` is how an estimate reads on the page: it never appears without the label.
+        expect(r.go.startsWith('~')).toBe(!!r.expected);
+        expect(r.candor.startsWith('~')).toBe(!!r.expected);
+      }
+    }
+    expect(n.headline.catches.length).toBeGreaterThan(0);
+    for (const s of n.headline.stages) expect(s.done).toBeLessThanOrEqual(s.planned);
   });
 
   test('docs/trials.md shows the change trial as it is', () => {
