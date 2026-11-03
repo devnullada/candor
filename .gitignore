@@ -6,4 +6,5 @@ tools/gotypes/bin/
 trials/runs/
 dist/
 CLAUDE.local.md
+trial-numbers/expected.local.json
 __pycache__/

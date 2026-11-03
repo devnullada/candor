@@ -33,17 +33,29 @@ describe.skipIf(!!process.env.CANDOR_NUMBERS)('the numbers', () => {
     expect(n.change.catches.length).toBeGreaterThan(0);
   });
 
-  test("the front page's numbers each show figures, and an expected one says so and why", () => {
-    const cards = headlineCards(n);
-    expect(cards.map((c) => c.id)).toEqual(['accepted', 'cost', 'effects', 'newApp']);
-    for (const c of cards) {
-      expect(c.rows.length).toBeGreaterThan(0);
-      for (const r of c.rows) {
-        expect(r.go).toMatch(/\d/);
-        expect(r.candor).toMatch(/\d/);
-        // A `~` is how an estimate reads on the page: it never appears without the label.
-        expect(r.go.startsWith('~')).toBe(!!r.expected);
-        expect(r.candor.startsWith('~')).toBe(!!r.expected);
+  test("the front page's numbers show a figure or say why not, and an expected one says so", () => {
+    // Stand-in values: the real expected figures are local to the dev site.
+    const local = {
+      afterEdit: { basis: 'b', sonnet: { go: 0.5, candor: 0.5 }, opus: { go: 0.5, candor: 0.5 } },
+      effects: { basis: 'b', correct: { go: 50, candor: 50 }, tokens: { go: 1000, candor: 1000 } },
+      newAppBasis: 'b',
+    };
+    for (const expected of [undefined, local]) {
+      const cards = headlineCards(n, expected);
+      expect(cards.map((c) => c.id)).toEqual(['accepted', 'cost', 'effects', 'newApp']);
+      for (const c of cards) {
+        expect(c.rows.length).toBeGreaterThan(0);
+        for (const r of c.rows) {
+          if ('go' in r) {
+            // A `~` is how an estimate reads on the page: it never appears without the label.
+            expect(r.go.startsWith('~')).toBe(!!r.expected);
+            expect(r.candor.startsWith('~')).toBe(!!r.expected);
+            if (r.expected) expect(expected).toBeDefined();
+          } else {
+            expect(expected).toBeUndefined();
+            expect(r.pending).toMatch(/^Not /);
+          }
+        }
       }
     }
     expect(n.headline.catches.length).toBeGreaterThan(0);
