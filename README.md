@@ -93,6 +93,7 @@ candor emit examples/hello.candor     # print the generated Go
 candor bind github.com/dustin/go-humanize@latest   # draft a binding for a Go package
 candor doc string                     # a built-in type's methods; `candor doc split` by name
 candor outline src                    # each file's types and signatures with line ranges, no bodies
+candor effects src                    # each pub function's effects, sorted; --json for a tool
 ```
 
 ## Issues and contributions

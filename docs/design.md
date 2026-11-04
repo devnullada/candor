@@ -6084,6 +6084,32 @@ production build ignores them.
 - Green, the logo's colour, marks what the language does today. Purple is the one added colour and
   marks only what isn't proven yet: an Expected label, or the claim that changes get cheaper and safer.
 
+### `candor effects` (card #b64daaed)
+
+`candor effects [files or dirs]` lists what each function's signature says it may do, sorted by
+file, then name, with its line; `--json` gives the same with one function to a line. It is the base
+for the effect lock file and policy cards. The card's open question (every function or only `pub`)
+was left to the implementer while Pal was away; the default below can still change.
+
+- **`pub` functions and `main` by default; `--full` adds private ones**, the same split as `outline`.
+  A private function's effects have to appear on whatever calls it, so the short listing still shows
+  a module's reach, and an internal refactor doesn't touch it.
+- Also listed: trait methods of `pub` traits, impl methods, an effect's operations and `pub` externs.
+  Not listed: tests, `test fn`s, fakes and `_test.candor` files, which don't run in the program.
+- **A function with no effects is listed**, so one that gains an effect shows as a changed line.
+- **`uses f` is kept apart**, in JSON as `from`, since it isn't an effect of its own. A name is read
+  as the checker reads it: a parameter's name wins.
+- **Nothing is worked out**: the checker makes each caller declare what it calls, so there are no
+  inherited effects to compute. It parses and doesn't check, so `candor check` is what vouches for
+  the signatures. An `extern` with no `uses` shows as no effects: that is its author's word, and
+  #9bc03dc7 covers it. So does a returned function's own `uses`: it isn't listed on the function
+  returning it, and its callers declare it.
+- **A syntax error prints no listing and exits 1**: a listing missing a file would look as if that
+  file's functions had gone. Paths are relative with forward slashes and the sort ignores locale, so
+  the listing is the same on every system.
+
+Tests: `test/effect-listing.test.ts`.
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,

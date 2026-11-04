@@ -70,7 +70,7 @@ test('check with no file checks every file; a broken one fails it', () => {
 
 test('other commands refuse a second file; several files take no --out or file:line', () => {
   setup();
-  expect(candor('run', 'a.candor', 'c.candor').err).toContain('candor: run takes one file; only test, check and outline take several');
+  expect(candor('run', 'a.candor', 'c.candor').err).toContain('candor: run takes one file; only test, check, outline and effects take several');
   expect(candor('test', 'a.candor', 'sub', '--out', 'x').err).toContain('--out is for one file');
   expect(candor('test', 'a.candor:3', 'sub').err).toContain('`file:line` picks a test in one file');
   expect(candor('test', 'nope.candor', 'a.candor').err).toContain('cannot find nope.candor');

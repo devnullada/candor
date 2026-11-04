@@ -7,6 +7,7 @@ import { checkExterns, draft } from './bind';
 import type { TestDecl } from './ast';
 import { compile, mainFileOf, testFileOf, type CompileResult } from './compile';
 import { formatHuman, type Diagnostic } from './diagnostics';
+import { effectListing, formatEffects, formatEffectsJson, sortEntries, type EffectEntry } from './effect-listing';
 import { findGo, goBuild, goPackages, noGo, prepareModule, scratchModule, targets } from './go';
 import { guide, init } from './guide';
 import { buildDir, lockBuild, version } from './home';
@@ -43,6 +44,10 @@ usage:
                                each file's declarations and signatures with their line
                                ranges, no bodies; tests counted (--tests lists them).
                                Read it before reading a file, then read the lines you need
+  candor effects [files or dirs]
+                               each pub function's effects, sorted, with file and line;
+                               --full adds private ones, --json for a tool. Diffs show when
+                               a module's reach changes
   candor bind <go package>     print a draft binding for a Go package, as in
                                github.com/dustin/go-humanize@v1.0.1 (or @latest), or strconv
   candor doc [name]            the methods of a built-in type or effect (candor doc string),
@@ -61,7 +66,8 @@ options:
                 1 with --seed), stopping at the first failure
   --only <text> for test: run the tests whose name contains the text (repeatable)
   --tests       for outline: list each test and test fn
-  --full        for outline: every function's signature (otherwise private ones by name)
+  --full        for outline: every function's signature (otherwise private ones by name);
+                for effects: private functions too
   --name <m>    for bind: the module's name (default: the Go package's)
   --init <file> for debug: Delve commands to run first, one per line
   --target <t>  for build: the system to build for, one of windows-x64, windows-arm64,
@@ -69,7 +75,7 @@ options:
                 Windows; cgo off)
 `;
 
-const commands = ['run', 'build', 'debug', 'test', 'check', 'emit', 'bind', 'doc', 'version', 'guide', 'init', 'outline'] as const;
+const commands = ['run', 'build', 'debug', 'test', 'check', 'emit', 'bind', 'doc', 'version', 'guide', 'init', 'outline', 'effects'] as const;
 
 interface Args {
   command: (typeof commands)[number];
@@ -113,6 +119,7 @@ function main(argv: string[]): number {
   const args = parseArgs(argv);
   if (!args) return 2;
   if (args.command === 'outline') return outlines(args.files ?? [args.file], args.tests, args.full);
+  if (args.command === 'effects') return effects(args.files ?? [args.file], args.full, args.json);
   if (args.files) return many(args, args.files);
   return one(args);
 }
@@ -176,6 +183,39 @@ function outlines(files: string[], tests: boolean, full: boolean): number {
     }
   }
   return status;
+}
+
+/**
+ * Card #b64daaed: `candor effects`. Paths are relative with forward slashes, so a listing reads
+ * the same on every system. All or nothing: a listing missing a broken file would look like that
+ * file's functions had gone.
+ */
+function effects(files: string[], full: boolean, json: boolean): number {
+  const entries: EffectEntry[] = [];
+  const shown = (f: string) => path.relative(process.cwd(), f).replaceAll('\\', '/');
+  let status = 0;
+  for (const file of [...new Set(files.map(shown))]) {
+    if (file.endsWith('_test.candor')) continue;
+    let source: string;
+    try {
+      source = readFileSync(file, 'utf8');
+    } catch {
+      console.error(`candor: cannot read ${file}`);
+      status = 1;
+      continue;
+    }
+    const listing = effectListing(source, file, full);
+    entries.push(...listing.entries);
+    const errors = listing.diagnostics.filter((d) => d.severity === 'error');
+    if (errors.length > 0) {
+      status = 1;
+      report(errors, new Map([[file, source]]), json);
+    }
+  }
+  if (status !== 0) return status;
+  const sorted = sortEntries(entries);
+  process.stdout.write(json ? formatEffectsJson(sorted) : formatEffects(sorted));
+  return 0;
 }
 
 /** Whether a file has a test block (one whose name has an `--only` text, when given). */
@@ -439,7 +479,7 @@ function parseArgs(argv: string[]): Args | null {
     }
   };
   const named = positional.slice(1);
-  if ((known === 'test' || known === 'check' || known === 'outline') && (named.length !== 1 || isDir(named[0]))) {
+  if ((known === 'test' || known === 'check' || known === 'outline' || known === 'effects') && (named.length !== 1 || isDir(named[0]))) {
     if (out) return usageError(`--out is for one file; ${command} of several builds each on its own`);
     if (named.some((f) => /\.candor:\d+$/.test(f))) return usageError('`file:line` picks a test in one file; name that file alone');
     const missing = named.find((f) => !existsSync(f));
@@ -447,13 +487,13 @@ function parseArgs(argv: string[]): Args | null {
     const found = (named.length === 0 ? ['.'] : named).flatMap((f) => (isDir(f) ? candorFiles(f) : [f]));
     // #240e482c: a test file goes with its module, unless it has none (then it is refused).
     const own = (f: string) => {
-      const main = known === 'outline' ? null : mainFileOf(f);
+      const main = known === 'outline' || known === 'effects' ? null : mainFileOf(f);
       return main && existsSync(main) ? main : f;
     };
     const files = [...new Set(found.map(own))];
     return { command: known, file: '', json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, files };
   }
-  if (positional.length > 2) return usageError(`${command} takes one ${known === 'bind' ? 'Go package' : 'file'}; only test, check and outline take several`);
+  if (positional.length > 2) return usageError(`${command} takes one ${known === 'bind' ? 'Go package' : 'file'}; only test, check, outline and effects take several`);
   if (!file) return usageError(known === 'bind' ? 'bind needs a Go package' : `${command} needs a file`);
   // `app.candor:42` (not `C:\...`: the line is digits at the end).
   const at = /^(.*\.candor):(\d+)$/.exec(file);

@@ -40,8 +40,9 @@ src/reference.ts    the reference: every built-in method's signature, doc and ex
 src/compile.ts      reads a file and its imports, checks each module, emits one Go program
 src/bind.ts         bindings checked against Go's types; drafts of new bindings
 src/go.ts           runs Go: the build's module, `go get`, the type-reading helper
-src/cli.ts          run / build / debug / test / check / emit / bind / doc / outline / guide / init / version
+src/cli.ts          run / build / debug / test / check / emit / bind / doc / outline / effects / guide / init / version
 src/outline.ts      `candor outline`: types, signatures and line ranges, no bodies
+src/effect-listing.ts  `candor effects`: each function's `uses`, sorted, for diffs and lock files
 src/home.ts         where std/, runtime/ and tools/ are: the clone, or written out by a release binary
 src/guide.ts        `candor guide` (docs/agent.md; `more`: agent-more.md; `service`: agent-service.md; `start`: start.md; embedded), `candor init`
 std/                standard modules, written in Candor: `import "json"` reads std/json.candor
