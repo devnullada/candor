@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: tools/gotypes/go.sum
+      # On Windows the tests otherwise look in C:\Program Files\Go, which isn't this Go.
+      - name: Tell the tests which Go to use
+        shell: bash
+        run: echo "CANDOR_GO=$(go env GOROOT)/bin/go$(go env GOEXE)" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
