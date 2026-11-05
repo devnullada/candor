@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { buildDir, pruneBuilds } from '../src/home';
@@ -37,11 +37,10 @@ test('run and test leave nothing in the project; build puts the binary beside th
   expect(readdirSync(path.join(cache, folder)).sort()).toEqual(['hello', 'hello.test']);
 
   const built = candor(project, cache, 'build', 'main.candor');
-  expect(built.out).toBe(path.join(project, `hello${exe}`));
-  expect(existsSync(built.out)).toBe(true);
+  // Both by their real path: on macOS the temp folder is a symlink.
+  expect(realpathSync(built.out)).toBe(realpathSync(path.join(project, `hello${exe}`)));
   const named = candor(project, cache, 'build', 'main.candor', '-o', path.join('bin', `hi${exe}`));
-  expect(named.out).toBe(path.join(project, 'bin', `hi${exe}`));
-  expect(existsSync(named.out)).toBe(true);
+  expect(realpathSync(named.out)).toBe(realpathSync(path.join(project, 'bin', `hi${exe}`)));
 }, 300_000);
 
 test('a folder named for the module says to use -o; -o is for build', () => {
