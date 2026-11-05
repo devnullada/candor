@@ -43,7 +43,7 @@ compiler error whose help line says the fix, and is listed in the release notes.
 ## Install
 
 Candor builds with [Go](https://go.dev/dl/) 1.22+ (`winget install GoLang.Go`, `brew install go`).
-Then one binary, for Windows, macOS and Linux:
+Then one binary, for Windows, macOS and Linux (on Windows, see [antivirus](#windows-antivirus)):
 
 ```
 curl -fsSL https://raw.githubusercontent.com/devnullada/candor/master/install.sh | sh     # macOS, Linux
@@ -58,6 +58,26 @@ it (the script's `curl` doesn't set it).
 It writes the standard modules and the Go runtime under `~/.candor/<version>/` on first use
 (`CANDOR_HOME` to move them), and removes older versions' folders then. `candor version` shows
 the version and the Go it found.
+
+### Windows antivirus
+
+Windows Defender can flag a program Candor builds as a trojan and remove it, often as
+`Trojan:Win32/Bearfoos.A!ml`; `!ml` means a machine-learning guess. Go's own FAQ lists this kind of
+false positive for Go binaries. It can still be a real detection if you run code you don't know, so
+check Windows Security's protection history and what your program depends on.
+
+To keep builds out of the way, send them to one folder of their own and exclude only that folder.
+Never exclude Temp: nothing in an excluded folder is scanned, and much else lands in Temp.
+
+```
+mkdir D:\candor-build\gotmp                       # Go needs this folder to exist
+go env -w GOTMPDIR=D:\candor-build\gotmp          # where Go links, for all your Go builds
+setx CANDOR_CACHE D:\candor-build\cache           # where candor run and test keep binaries; open a new terminal after
+Add-MpPreference -ExclusionPath D:\candor-build   # the exclusion: PowerShell, as administrator
+```
+
+`candor build` still puts its binary beside your source, outside this folder. Report a false
+positive to Microsoft at <https://www.microsoft.com/wdsi/filesubmission>, so it stops for others.
 
 ### With an AI coder
 
