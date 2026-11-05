@@ -94,6 +94,7 @@ candor bind github.com/dustin/go-humanize@latest   # draft a binding for a Go pa
 candor doc string                     # a built-in type's methods; `candor doc split` by name
 candor outline src                    # each file's types and signatures with line ranges, no bodies
 candor effects src                    # each pub function's effects, sorted; --json for a tool
+candor effects src --check            # fail if they differ from effects.lock (--write updates it)
 ```
 
 ## Issues and contributions

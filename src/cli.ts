@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { checkExterns, draft } from './bind';
 import type { TestDecl } from './ast';
 import { compile, mainFileOf, testFileOf, type CompileResult } from './compile';
 import { formatHuman, type Diagnostic } from './diagnostics';
-import { effectListing, formatEffects, formatEffectsJson, sortEntries, type EffectEntry } from './effect-listing';
+import { diffLock, effectListing, formatChange, formatEffects, formatEffectsJson, formatLock, lockFile, parseLock, sortEntries, type EffectEntry } from './effect-listing';
 import { findGo, goBuild, goPackages, noGo, prepareModule, scratchModule, targets } from './go';
 import { guide, init } from './guide';
 import { buildDir, lockBuild, version } from './home';
@@ -46,8 +46,9 @@ usage:
                                Read it before reading a file, then read the lines you need
   candor effects [files or dirs]
                                each pub function's effects, sorted, with file and line;
-                               --full adds private ones, --json for a tool. Diffs show when
-                               a module's reach changes
+                               --full adds private ones, --json for a tool. --write saves
+                               them to effects.lock here; --check fails when the code
+                               differs (use the same files or dirs for both)
   candor bind <go package>     print a draft binding for a Go package, as in
                                github.com/dustin/go-humanize@v1.0.1 (or @latest), or strconv
   candor doc [name]            the methods of a built-in type or effect (candor doc string),
@@ -68,6 +69,8 @@ options:
   --tests       for outline: list each test and test fn
   --full        for outline: every function's signature (otherwise private ones by name);
                 for effects: private functions too
+  --write       for effects: save the listing to effects.lock in the current directory
+  --check       for effects: exit 1 if the code differs from effects.lock, naming each change
   --name <m>    for bind: the module's name (default: the Go package's)
   --init <file> for debug: Delve commands to run first, one per line
   --target <t>  for build: the system to build for, one of windows-x64, windows-arm64,
@@ -102,6 +105,8 @@ interface Args {
   tests: boolean;
   /** Card #7de8b2de: for outline, `--full`: every function's signature, not only pub ones'. */
   full: boolean;
+  /** Card #768dd00d: for effects, `--write` or `--check` against effects.lock. */
+  lock?: 'write' | 'check' | null;
   /** Card 145: for test and check, the files to go through one by one; null for one file named. */
   files: string[] | null;
 }
@@ -119,7 +124,7 @@ function main(argv: string[]): number {
   const args = parseArgs(argv);
   if (!args) return 2;
   if (args.command === 'outline') return outlines(args.files ?? [args.file], args.tests, args.full);
-  if (args.command === 'effects') return effects(args.files ?? [args.file], args.full, args.json);
+  if (args.command === 'effects') return effects(args.files ?? [args.file], args.full, args.json, args.lock ?? null);
   if (args.files) return many(args, args.files);
   return one(args);
 }
@@ -190,7 +195,7 @@ function outlines(files: string[], tests: boolean, full: boolean): number {
  * the same on every system. All or nothing: a listing missing a broken file would look like that
  * file's functions had gone.
  */
-function effects(files: string[], full: boolean, json: boolean): number {
+function effects(files: string[], full: boolean, json: boolean, lock: 'write' | 'check' | null): number {
   const entries: EffectEntry[] = [];
   const shown = (f: string) => path.relative(process.cwd(), f).replaceAll('\\', '/');
   let status = 0;
@@ -214,8 +219,38 @@ function effects(files: string[], full: boolean, json: boolean): number {
   }
   if (status !== 0) return status;
   const sorted = sortEntries(entries);
+  if (lock === 'write') {
+    writeFileSync(lockFile, formatLock(sorted));
+    console.log(`wrote ${lockFile}: ${sorted.filter((e) => e.effects.length + e.from.length > 0).length} functions with effects`);
+    return 0;
+  }
+  if (lock === 'check') return checkLock(sorted, json);
   process.stdout.write(json ? formatEffectsJson(sorted) : formatEffects(sorted));
   return 0;
+}
+
+/** Card #768dd00d: `candor effects --check`, the code against effects.lock. */
+function checkLock(entries: EffectEntry[], json: boolean): number {
+  let text: string;
+  try {
+    text = readFileSync(lockFile, 'utf8');
+  } catch {
+    console.error(`candor: no ${lockFile} in this directory\nhelp: \`candor effects --write\` makes it; commit it beside the code`);
+    return 1;
+  }
+  const locked = parseLock(text);
+  if ('badLine' in locked) {
+    console.error(`candor: ${lockFile}:${locked.badLine}: not a line this file has\nhelp: if a merge left it there, settle the merge in the code, then \`candor effects --write\``);
+    return 1;
+  }
+  const changes = diffLock(locked.fns, entries);
+  if (json) console.log(JSON.stringify({ changes }));
+  else if (changes.length === 0) console.log(`effects match ${lockFile}`);
+  else {
+    for (const c of changes) console.error(formatChange(c));
+    console.error(`\ncandor: ${changes.length} function${changes.length === 1 ? '' : 's'} differ${changes.length === 1 ? 's' : ''} from ${lockFile}\nhelp: if this is intended, run \`candor effects --write\` and commit ${lockFile}, so the review shows it`);
+  }
+  return changes.length === 0 ? 0 : 1;
 }
 
 /** Whether a file has a test block (one whose name has an `--only` text, when given). */
@@ -414,6 +449,7 @@ function parseArgs(argv: string[]): Args | null {
   let json = false;
   let tests = false;
   let full = false;
+  let lock: 'write' | 'check' | null = null;
   let out: string | null = null;
   let exe: string | null = null;
   let seed: string | null = null;
@@ -435,6 +471,10 @@ function parseArgs(argv: string[]): Args | null {
       tests = true;
     } else if (a === '--full') {
       full = true;
+    } else if (a === '--write' || a === '--check') {
+      const asked = a === '--write' ? 'write' : 'check';
+      if (lock && lock !== asked) return usageError('--write and --check go one at a time');
+      lock = asked;
     } else if (a === '-o') {
       exe = argv[++i] ?? null;
       if (exe === null) return usageError('-o needs a file for the binary');
@@ -469,6 +509,9 @@ function parseArgs(argv: string[]): Args | null {
   const [command, file] = positional;
   const known = commands.find((c) => c === command);
   if (!known) return usageError(command ? `unknown command ${command}` : 'no command given');
+  if (lock && known !== 'effects') return usageError(`--${lock} is for effects`);
+  // A lock with private functions would fail against every listing without them.
+  if (lock && full) return usageError(`--${lock} takes pub functions only, so leave out --full`);
   if (known === 'doc' || known === 'version' || known === 'guide' || known === 'init') return { command: known, file: file ?? '', json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, files: null };
   // Card 145: test and check take several files, folders, or none (the current folder).
   const isDir = (p: string) => {
@@ -491,7 +534,7 @@ function parseArgs(argv: string[]): Args | null {
       return main && existsSync(main) ? main : f;
     };
     const files = [...new Set(found.map(own))];
-    return { command: known, file: '', json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, files };
+    return { command: known, file: '', json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, lock, files };
   }
   if (positional.length > 2) return usageError(`${command} takes one ${known === 'bind' ? 'Go package' : 'file'}; only test, check, outline and effects take several`);
   if (!file) return usageError(known === 'bind' ? 'bind needs a Go package' : `${command} needs a file`);
@@ -502,7 +545,7 @@ function parseArgs(argv: string[]): Args | null {
   if (target && known !== 'build') return usageError(`--target is for build: ${command} runs the program here`);
   if (exe && known !== 'build') return usageError(`-o is for build: ${command} keeps its binary in the build directory`);
   if (rest.length > 0 && known !== 'run' && known !== 'debug') return usageError('only run and debug pass arguments to the program');
-  return { command: known, file, json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, files: null };
+  return { command: known, file, json, line: null, out, exe, seed, runs, only, name, init, target, rest, tests, full, lock, files: null };
 }
 
 /**

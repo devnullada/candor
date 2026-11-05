@@ -6088,8 +6088,7 @@ production build ignores them.
 
 `candor effects [files or dirs]` lists what each function's signature says it may do, sorted by
 file, then name, with its line; `--json` gives the same with one function to a line. It is the base
-for the effect lock file and policy cards. The card's open question (every function or only `pub`)
-was left to the implementer while Pal was away; the default below can still change.
+for the effect lock file and policy cards.
 
 - **`pub` functions and `main` by default; `--full` adds private ones**, the same split as `outline`.
   A private function's effects have to appear on whatever calls it, so the short listing still shows
@@ -6108,7 +6107,28 @@ was left to the implementer while Pal was away; the default below can still chan
   file's functions had gone. Paths are relative with forward slashes and the sort ignores locale, so
   the listing is the same on every system.
 
-Tests: `test/effect-listing.test.ts`.
+Tests: `test/effect-listing.test.ts`. Pal confirmed the `pub` default on 2026-11-05.
+
+### `effects.lock` (card #768dd00d)
+
+`candor effects --write` saves the listing to `effects.lock` in the current directory, and
+`candor effects --check` exits 1 when the code differs, naming each function and effect, with a help
+line saying how to accept the change. A PR where an AI added `exec` fails, and accepting it is a
+one-line diff for the reviewer. It needs no server or GitHub API, only an exit code and a file.
+
+- **Only functions with effects are in the lock.** A new function that touches nothing outside
+  itself isn't news, so it doesn't fail; one gaining an effect is a new line. This departs from the
+  listing, which shows functions with no effects.
+- **No line numbers**, so moving a function changes nothing. The check's report does give the line.
+- **Both directions fail**: a lost effect or a removed function is a mismatch as well, so the lock
+  stays true. A renamed function with effects shows as one gone and one gained.
+- **`--full` is refused with `--write` and `--check`.** Private functions would make internal
+  refactors fail, which is what the `pub` default avoids.
+- `--write` and `--check` need the same files or dirs: a check of a subset reports the rest as gone.
+  The check only reads signatures, so CI runs `candor check` as well.
+- This is not a sandbox: Go behind an `extern` isn't seen, and #9bc03dc7 adds those to the lock.
+
+Tests: `test/effects-lock.test.ts`.
 
 ## Open questions
 
