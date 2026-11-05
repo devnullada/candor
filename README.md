@@ -76,6 +76,7 @@ setx CANDOR_CACHE D:\candor-build\cache           # where candor run and test ke
 Add-MpPreference -ExclusionPath D:\candor-build   # the exclusion: PowerShell, as administrator
 ```
 
+The one case measured was a verdict on one exact binary: changing a line of the program got past it.
 `candor build` still puts its binary beside your source, outside this folder. Report a false
 positive to Microsoft at <https://www.microsoft.com/wdsi/filesubmission>, so it stops for others.
 

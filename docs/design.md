@@ -6153,8 +6153,15 @@ killed process showed what a user saw, and most of it told them nothing:
 - **No new setting for the cache.** `CANDOR_CACHE` already moves it, and `go env -w GOTMPDIR` moves Go's
   link output. The README's Windows note gives both, an exclusion for that one folder and never Temp,
   and where to report a false positive.
-- Defender itself was not reproduced on demand: its real text comes from the 2026-11-05 failure, and
-  the other cases are stand-ins. Build flags and signing are unchanged (Pal's call).
+- **The verdict is on one exact binary, not on Go binaries in general.** `cli-many`'s test binary in the
+  test cache is blocked every time on Pal's machine, which is what let this be measured. With Go's temp
+  folder on Temp, three rounds of each: default flags blocked 3 of 3; `-s -w`, `-trimpath`, both, and
+  default flags with one line added to the source, 0 of 3 each. So the flags show nothing, since any
+  change gets past. 100 other builds, with those flag sets and a new hash each, had no detections, so
+  there is no rate to compare either. Flags stay as they are, and signing has no evidence for or against.
+- A blocked build was seen with real Defender and prints the message above. Removal and a failed start
+  are stand-ins: a binary deleted by a stand-in `go`, and one with execute denied. Only a blocked build
+  has been seen for real.
 
 Tests: `test/blocked-binary.test.ts`.
 
