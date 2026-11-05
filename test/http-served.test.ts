@@ -17,7 +17,9 @@ function cli(src: string) {
   return spawnSync(process.execPath, ['run', path.join(import.meta.dir, '..', 'src', 'cli.ts'), 'test', 't.candor', '--out', path.join(dir, 'out')], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, CANDOR_GO: go },
+    // Go 1.27.3 caps a request's ranges; a module below `go 1.26`, as Candor's builds are, gets a cap
+    // of 1, so several ranges answer 200 with the whole file. This test is about the multipart form.
+    env: { ...process.env, CANDOR_GO: go, GODEBUG: 'httpservecontentmaxranges=200' },
   });
 }
 

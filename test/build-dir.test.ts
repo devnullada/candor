@@ -31,7 +31,7 @@ test('run and test leave nothing in the project; build puts the binary beside th
 
   expect(candor(project, cache, 'run', 'main.candor').out).toBe('hi');
   expect(candor(project, cache, 'test', 'main.candor').out).toContain('1 passed');
-  expect(readdirSync(project)).toEqual(['main.candor', 'main_test.candor']);
+  expect(readdirSync(project).sort()).toEqual(['main.candor', 'main_test.candor']);
   const [folder] = readdirSync(cache).filter((f) => !f.startsWith('.'));
   expect(folder).toMatch(/^project-[0-9a-f]{10}$/);
   expect(readdirSync(path.join(cache, folder)).sort()).toEqual(['hello', 'hello.test']);

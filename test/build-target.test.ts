@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -39,7 +39,8 @@ test('build --target gives a binary for that system, named without .exe off Wind
   writeFileSync(path.join(dir, 'app.candor'), app);
   const linux = candor({}, 'build', '--target', 'linux-x64', 'app.candor');
   expect(linux.err).toBe('');
-  expect(linux.out).toBe(path.resolve(dir, 'app'));
+  // Beside the file, from the child's working directory: on macOS the temp folder is a symlink.
+  expect(realpathSync(linux.out)).toBe(realpathSync(path.resolve(dir, 'app')));
   expect(magic(linux.out)).toBe('7f454c46'); // ELF
   const mac = candor({}, 'build', 'app.candor', '--target', 'darwin-arm64', '--out', path.join(dir, 'mac'));
   expect(mac.out).toBe(path.resolve(dir, 'mac', 'app'));
