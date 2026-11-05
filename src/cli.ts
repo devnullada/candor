@@ -8,7 +8,7 @@ import type { TestDecl } from './ast';
 import { compile, mainFileOf, testFileOf, type CompileResult } from './compile';
 import { formatHuman, type Diagnostic } from './diagnostics';
 import { diffLock, effectListing, formatChange, formatEffects, formatEffectsJson, formatLock, lockFile, parseLock, sortEntries, type EffectEntry } from './effect-listing';
-import { findGo, goBuild, goPackages, noGo, prepareModule, scratchModule, targets } from './go';
+import { antivirusHelp, findGo, goBuild, goPackages, noGo, prepareModule, scratchModule, targets } from './go';
 import { guide, init } from './guide';
 import { buildDir, lockBuild, version } from './home';
 import { outline } from './outline';
@@ -403,7 +403,12 @@ function build(goBin: string, result: CompileResult, outDir: string, args: Args,
   // A test binary is removed once it has run; under a name of its own, so that a test run of the
   // same file ending meanwhile can't remove this one.
   const exe = built.replace(/(\.exe)?$/, `.${process.pid}$1`);
-  renameSync(built, exe);
+  try {
+    renameSync(built, exe);
+  } catch (e) {
+    console.error(`candor: cannot use the test binary ${built}: ${(e as Error).message}${antivirusHelp()}`);
+    return 1;
+  }
   return { exe, lineTest };
 }
 
@@ -422,6 +427,19 @@ function runBuilt(goBin: string, exe: string, lineTest: TestDecl | null, args: A
   ];
   // Card 145: in a run of many files, the summary is read for the total.
   const run = spawnSync(exe, testing ? testArgs : args.rest, { stdio: tally ? ['inherit', 'pipe', 'inherit'] : 'inherit', encoding: 'utf8' });
+  // Nothing runs a test binary again, and there is one per test file: 7-17 MB each.
+  if (testing) {
+    try {
+      rmSync(exe, { force: true });
+    } catch {
+      // Still held by the OS; the next build overwrites it.
+    }
+  }
+  // It never started, so no exit status says anything: without this a run ends silently.
+  if (run.error) {
+    console.error(`candor: cannot start ${exe}: ${run.error.message}${antivirusHelp()}`);
+    return 1;
+  }
   if (tally) {
     tally.files++;
     const out = run.stdout ?? '';
@@ -432,14 +450,6 @@ function runBuilt(goBin: string, exe: string, lineTest: TestDecl | null, args: A
     tally.passed += Number(summary?.passed ?? 0);
     tally.failed += Number(summary?.failed ?? 0);
     tally.filtered += Number(summary?.filtered ?? 0);
-  }
-  // Nothing runs a test binary again, and there is one per test file: 7-17 MB each.
-  if (testing) {
-    try {
-      rmSync(exe, { force: true });
-    } catch {
-      // Still held by the OS; the next build overwrites it.
-    }
   }
   return run.status ?? 1;
 }

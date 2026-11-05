@@ -26,6 +26,27 @@ const installGo: Record<string, string> = {
 
 export const noGo = `candor: cannot find Go, which candor builds with. Install it (${installGo[process.platform] ?? 'https://go.dev/dl/'}) or set CANDOR_GO to the go binary.`;
 
+// Windows antivirus removes or blocks unsigned Go binaries now and then, on a guess (Defender's
+// Trojan:Win32/Bearfoos.A!ml, 2026-11-05). What it looks like from here depends on when it acts.
+const antivirusDoc = 'https://github.com/devnullada/candor#windows-antivirus';
+
+/** The help for a binary that went missing or wouldn't start: on Windows only, where this is a likely cause. */
+export function antivirusHelp(platform: string = process.platform): string {
+  return platform === 'win32' ? `\nhelp: antivirus may have removed or blocked it, which Go binaries sometimes trigger. Windows Security's protection history says; if so, see ${antivirusDoc}` : '';
+}
+
+/**
+ * What to say when `go build` failed because Windows wouldn't let it write its binary: `blocked`
+ * when Windows says so, `maybe` when a binary's file couldn't be opened; null for everything else,
+ * a real build error included. Windows words these in its own language, so `blocked` can be missed.
+ */
+export function blockedBuild(goStderr: string, platform: string = process.platform): 'blocked' | 'maybe' | null {
+  if (platform !== 'win32') return null;
+  if (/contains a virus or potentially unwanted software/i.test(goStderr)) return 'blocked';
+  if (/\.exe\b.*: (Access is denied|The system cannot find the file specified)/i.test(goStderr)) return 'maybe';
+  return null;
+}
+
 /**
  * Writes the Go module a program builds in: go.mod, with the runtime and every third-party
  * package its bindings name, and the Go packages next to bindings. Returns an error message,
@@ -110,6 +131,14 @@ export function goBuild(goBin: string, result: CompileResult, moduleName: string
   const res = spawnSync(goBin, ['build', ...(debug ? ['-gcflags=all=-N -l'] : []), '-o', exe, '.'], { cwd: outDir, encoding: 'utf8', env });
   if (res.status !== 0) {
     process.stderr.write(goErrors(res.stderr, outDir));
+    const blocked = blockedBuild(res.stderr);
+    if (blocked) {
+      console.error(
+        `candor: ${blocked === 'blocked' ? 'Windows blocked the binary Go was building' : "Go couldn't write its binary"}; your code compiled.` +
+          ` If you weren't expecting that, check your dependencies too.${antivirusHelp()}`,
+      );
+      return null;
+    }
     // Bindings are checked against Go before this, so a failure here is rare in a binding. main.go
     // points at .candor lines too, so only a local package or bindings.go says it surely is one.
     const inBinding = /bindings\.go:\d+|local__\d+[\\/]/.test(res.stderr);
@@ -118,6 +147,10 @@ export function goBuild(goBin: string, result: CompileResult, moduleName: string
         ? 'candor: go build failed in a binding. Check that each `extern` names a Go function whose parameters and results match its Candor signature.'
         : 'candor: go build failed. If the error is on an `extern` line, check that it names a Go function whose parameters and results match its Candor signature; otherwise generated Go should always build, so this is a compiler bug.',
     );
+    return null;
+  }
+  if (!existsSync(exe)) {
+    console.error(`candor: go build succeeded, but the binary isn't there: ${exe}${antivirusHelp()}`);
     return null;
   }
   return exe;

@@ -6130,6 +6130,34 @@ one-line diff for the reviewer. It needs no server or GitHub API, only an exit c
 
 Tests: `test/effects-lock.test.ts`.
 
+### When antivirus takes the binary (Pal, 2026-11-05)
+
+On 2026-11-05 Defender flagged binaries Candor had built as `Trojan:Win32/Bearfoos.A!ml`, in about a
+minute: `go build`'s link output in Temp and a test binary in the test cache. A stand-in for `go` and a
+killed process showed what a user saw, and most of it told them nothing:
+
+| Defender's move | `run` before | `test` before | Now |
+|---|---|---|---|
+| Blocks the build | Go's text, then "compiler bug" | the same | Go's text, then that Windows blocked it |
+| Removes it after the build | exit 1, silence | stack trace | the binary isn't there, with help |
+| Stops it starting | exit 1, silence | exit 1, silence, counted as run | cannot start it, with help |
+| Kills it while running | exit 1, silence | not tried | unchanged |
+
+- **The help names antivirus only on Windows**, and says "may". A binary that won't start is reported
+  on every system; only the antivirus line is Windows's.
+- **A kill mid-run stays silent.** It looks exactly like a program exiting 1, so saying anything about
+  antivirus would be wrong far more often than right.
+- **The blocked-build check reads Windows's English text**, which Windows words in the user's language.
+  Elsewhere it falls back to the old line, "compiler bug" included. A `.exe` that Go can't open gets
+  "Go couldn't write its binary", since that may be antivirus or something else.
+- **No new setting for the cache.** `CANDOR_CACHE` already moves it, and `go env -w GOTMPDIR` moves Go's
+  link output. The README's Windows note gives both, an exclusion for that one folder and never Temp,
+  and where to report a false positive.
+- Defender itself was not reproduced on demand: its real text comes from the 2026-11-05 failure, and
+  the other cases are stand-ins. Build flags and signing are unchanged (Pal's call).
+
+Tests: `test/blocked-binary.test.ts`.
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,
