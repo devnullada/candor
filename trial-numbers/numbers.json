@@ -1,9 +1,9 @@
 {
   "about": "Figures for promotion: candorlanguage.org reads this file, and the README's Numbers section once it has one. `language` and each trial's `results` are filled in by `bun run numbers`; the rest is written by hand. Every claim carries its catches, so nothing says more than was measured.",
   "language": {
-    "version": "0.0.31",
-    "date": "2026-10-31",
-    "decisions": 216,
+    "version": "0.0.32",
+    "date": "2026-11-06",
+    "decisions": 222,
     "stdModules": [
       "bytes",
       "crypto",
@@ -24,8 +24,8 @@
       "url",
       "xml"
     ],
-    "tests": 899,
-    "compilerLines": 18843
+    "tests": 949,
+    "compilerLines": 19163
   },
   "headline": {
     "updated": "2026-11-03",
@@ -53,10 +53,27 @@
       }
     ],
     "stages": [
-      { "title": "Calibrate Opus on supercronic", "done": 0, "planned": 24 },
-      { "title": "Build the five new apps, in both languages", "done": 0, "planned": 10 },
-      { "title": "Change requests, first pass", "done": 0, "planned": 30 },
-      { "title": "Side-effect review, first pass", "done": 0, "planned": 30, "about": true }
+      {
+        "title": "Calibrate Opus on supercronic",
+        "done": 0,
+        "planned": 24
+      },
+      {
+        "title": "Build the five new apps, in both languages",
+        "done": 0,
+        "planned": 10
+      },
+      {
+        "title": "Change requests, first pass",
+        "done": 0,
+        "planned": 30
+      },
+      {
+        "title": "Side-effect review, first pass",
+        "done": 0,
+        "planned": 30,
+        "about": true
+      }
     ],
     "later": "Passes two and three repeat the change requests and the review, as the budget allows.",
     "catches": [

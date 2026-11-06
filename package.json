@@ -1,6 +1,6 @@
 {
   "name": "candor",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "description": "A backend language designed for AI coders. TypeScript-shaped, compiles to Go.",
   "private": true,
   "license": "MIT OR Apache-2.0",
