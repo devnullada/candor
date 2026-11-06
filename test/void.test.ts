@@ -47,6 +47,25 @@ describe('using it', () => {
     expect(diags(bare('  check(1)', check))).toEqual([['CAN0049', 'pass the error on with `?`, or handle it with `match`']]);
   });
 
+  // Card 74cc743a: these passed the checker and broke `go build` ("value of type bool is not used").
+  test("a built-in method's value dropped is CAN0012, with help that fits", () => {
+    const pair = 'fn pair() -> Result<int, string> {\n  return Ok(1)\n}\n';
+    expect(diags(bare('  check(1).isOk()', check))).toEqual([
+      ['CAN0012', 'to ignore the error, `match` it: `match ... { Ok() => {}, Err(_) => {} }`; to pass it on, use `?`'],
+    ]);
+    expect(diags(bare('  pair().isErr()', pair))).toEqual([
+      ['CAN0012', 'to ignore the error, `match` it: `match ... { Ok(_) => {}, Err(_) => {} }`; to pass it on, use `?`'],
+    ]);
+    expect(diags(bare('  let xs = [1]\n  xs.isEmpty()'))).toEqual([['CAN0012', 'assign it with `let`, or remove it']]);
+    expect(diags(bare('  " a ".trim()'))).toEqual([['CAN0012', 'assign it with `let`, or remove it']]);
+    expect(diags(bare('  let m = ["a": 1]\n  m.has("a")'))).toEqual([['CAN0012', 'assign it with `let`, or remove it']]);
+  });
+
+  test('`xs.pop()` and `m.remove(k)` change the value, so theirs may be dropped', () => {
+    const out = go('module m\nfn main() {\n  let mut xs = [1, 2]\n  xs.pop()\n  let mut m = ["a": 1]\n  m.remove("a")\n  if xs.isEmpty() && m.isEmpty() {\n    return\n  }\n}\n');
+    expect(out).toContain('func m__main(');
+  });
+
   test('a type parameter can be `void`', () => {
     const out = go('module m\nfn twice<T>(f: fn() -> T) -> List<T> {\n  return [f(), f()]\n}\nfn quiet() {}\nfn main() {\n  let vs = twice(() => quiet())\n  if vs.isEmpty() {\n    quiet()\n  }\n}\n');
     expect(out).toContain('m__twice[struct{}]');

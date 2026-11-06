@@ -6165,6 +6165,22 @@ killed process showed what a user saw, and most of it told them nothing:
 
 Tests: `test/blocked-binary.test.ts`.
 
+### A built-in method's value can't be dropped (bug #74cc743a)
+
+Found in sha256's `server/tasks/thumbnails.candor`: `fs.remove(p).isOk()` on its own line, to quiet
+CAN0049, passed the checker and broke `go build` ("value of type bool is not used"). The checker let
+any call drop its value, which holds for functions (Go drops their results) but not for built-in
+methods, which emit as plain Go expressions (`.ok`, `len(xs) == 0`).
+
+- **A built-in method that only reads is CAN0012 when its value is dropped**, as `x == 2` already
+  was: methods on primitives, `T?`, Result, List and Map. On a Result the help says how to ignore the
+  error, `match ... { Ok(_) => {}, Err(_) => {} }` (`Ok()` for a `Result<void, E>`), or pass it on with `?`.
+- **`xs.pop()` and `m.remove(k)` change the value**, so theirs may still be dropped.
+- **With `?` after it, it stays**: `sql.exec(q).mapErr(db)?` is there for the error.
+- Considered: the emitter writing `_ = expr`. It builds, but keeps a line that does nothing.
+
+Tests: `test/void.test.ts` ("a built-in method's value dropped"); `test/sql.test.ts` covers `.mapErr(f)?`.
+
 ## Open questions
 
 - Change trial: pass rate doesn't separate the languages at these requests. Harder requests,

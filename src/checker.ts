@@ -4576,7 +4576,17 @@ class Checker {
         // `save(x)?` on its own line passes the error on; what is left, like any call's value, may be dropped.
         if (stmt.expr.kind === 'Try' && (t.kind === 'unit' || t.kind === 'error')) return;
         const call = stmt.expr.kind === 'Try' ? stmt.expr.operand : stmt.expr;
-        if (call.kind !== 'Call') {
+        // With a `?` after it, the call's error is what the line is for: `r.mapErr(f)?` stays.
+        const pure = stmt.expr.kind === 'Call' && t.kind !== 'unit' && t.kind !== 'error' ? this.readOnlyBuiltin(stmt.expr) : null;
+        if (pure) {
+          // Card 74cc743a: `fs.remove(p).isOk()` only reads a value, and Go refuses a dropped `r.ok`.
+          const r = this.types.get(pure.object);
+          const help =
+            r?.kind === 'result'
+              ? `to ignore the error, \`match\` it: \`match ... { ${r.ok.kind === 'unit' ? 'Ok()' : 'Ok(_)'} => {}, Err(_) => {} }\`; to pass it on, use \`?\``
+              : 'assign it with `let`, or remove it';
+          this.error(Codes.UnusedValue, stmt.span, `this ${this.show(t)} from \`.${pure.name}()\` is not used`, help);
+        } else if (call.kind !== 'Call') {
           this.error(
             Codes.UnusedValue,
             stmt.span,
@@ -4594,6 +4604,23 @@ class Checker {
         return;
       }
     }
+  }
+
+  /**
+   * A call to a built-in method that only reads its value (`r.isOk()`, `xs.isEmpty()`, `s.trim()`):
+   * the callee, or null. `xs.pop()` and `m.remove(k)` change the value, so theirs may be dropped.
+   */
+  private readOnlyBuiltin(call: ast.Call): ast.Member | null {
+    if (call.callee.kind !== 'Member') return null;
+    const list = this.listCalls.get(call);
+    const map = this.mapCalls.get(call);
+    const builtin =
+      this.methods.has(call.callee) ||
+      this.resultChecks.has(call) ||
+      this.wrapMaps.has(call) ||
+      (list !== undefined && list !== 'pop' && list !== 'push') ||
+      (map !== undefined && map !== 'remove');
+    return builtin ? call.callee : null;
   }
 
   private checkAssign(stmt: ast.AssignStmt) {
