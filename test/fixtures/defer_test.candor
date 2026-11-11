@@ -1,0 +1,11 @@
+module cleanup
+
+test "cleanup runs when a task is cancelled" {
+  assert cancelled() == 3
+}
+
+test "a defer in an effect operation writes its state" {
+  cleanup.visit()
+  cleanup.visit()
+  assert cleanup.done() == 2
+}

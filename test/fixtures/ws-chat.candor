@@ -1,0 +1,73 @@
+module wschat
+
+import "http"
+
+// A chat room: everyone connected, by a number of their own.
+struct Member {
+  id: int
+  ws: http.WebSocket
+}
+
+fn echo(ws: http.WebSocket) {
+  while true {
+    match ws.receive() {
+      none => return,
+      text => {
+        if text == "bye" {
+          return
+        }
+        ws.send("echo: ${text}")
+      },
+    }
+  }
+}
+
+// Every message goes to everyone in the room; a member who leaves is taken out.
+fn talk(room: Mutex<List<Member>>, ids: Atomic<int>, ws: http.WebSocket) {
+  let me = ids.add(1)
+  room.update((members) => members.concat([Member { id: me, ws }]))
+  while true {
+    match ws.receive() {
+      none => {
+        room.update((members) => members.filter((m) => m.id != me))
+        return
+      },
+      text => {
+        for m in room.get() {
+          m.ws.send("${me}: ${text}")
+        }
+      },
+    }
+  }
+}
+
+fn route(req: http.Request, room: Mutex<List<Member>>, ids: Atomic<int>) -> http.Response {
+  if req.path == "/echo" {
+    return http.upgrade(req, echo)
+  }
+  if req.path == "/chat" {
+    return http.upgrade(req, (ws) => talk(room, ids, ws))
+  }
+  return http.textResponse(404, "no")
+}
+
+// Serves until STOP_MS milliseconds have passed: stopping cancels every connection's task.
+fn main() uses io, http, tasks, env, clock {
+  let port = env.get("PORT") ?? "18400"
+  let stop = (env.get("STOP_MS") ?? "60000").toInt() ?? 60_000
+  let finished = tasks.timeout(stop, () => {
+    tasks.scope((s) => {
+      let room: Mutex<List<Member>> = s.mutex([])
+      let ids = s.atomic(0)
+      match http.serve("127.0.0.1:${port}", (req) => route(req, room, ids)) {
+        Ok() => {},
+        Err(e) => io.println("serve: ${e}"),
+      }
+    })
+  })
+  io.println(if finished { "stopped by itself" } else { "stopped" })
+}
+
+fn get(path: string) -> http.Request {
+  return http.Request { method: "GET", path, query: [:], headers: [:], body: "" }
+}

@@ -1,0 +1,9 @@
+.candor/
+node_modules/
+*.exe
+.idea/
+tools/gotypes/bin/
+trials/runs/
+dist/
+CLAUDE.local.md
+__pycache__/

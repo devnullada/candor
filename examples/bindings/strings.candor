@@ -1,0 +1,13 @@
+module strings
+
+// Go written for Candor, in a package next to this file: the escape hatch, and the one place
+// to audit. Go's `strings` package itself would be bound as `strconv.candor` binds `strconv`;
+// what it has that Candor's string methods lack (`Fields`, `Cut`) can come in that way.
+pub extern "./native" {
+  fn Title(s: string) -> string as title
+}
+
+// A binding module can hold Candor code too.
+pub fn words(s: string) -> List<string> {
+  return s.trim().split(" ").filter((w) => !w.isEmpty())
+}

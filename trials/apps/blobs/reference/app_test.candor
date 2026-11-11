@@ -1,0 +1,14 @@
+module blobs
+
+test "a blob, a tag, and no deleting it while tagged" {
+  assert store.open(":memory:") == Ok()
+  let id = hashing.sha256Hex("hello")
+  assert id == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+  assert send("PUT", "/blobs", "hello").status == 201
+  assert send("PUT", "/blobs", "hello").status == 200
+  assert send("GET", "/blobs/${id}", "").body == "hello"
+  assert send("PUT", "/tags/v1", """{"id": "${id}"}""").status == 200
+  assert send("DELETE", "/blobs/${id}", "").status == 409
+  assert send("GET", "/blobs/${id}/meta", "").body == """{"id":"${id}","size":5,"tags":["v1"]}"""
+  assert hashing.base64("ab") == "YWI="
+}

@@ -1,0 +1,92 @@
+module workers
+
+import "bindings/strings"
+
+// What tasks share: a Channel hands out work, a Mutex keeps a tally no update is lost from, an
+// Atomic counts. Each belongs to the scope that makes it, like its tasks. Fetching a page is
+// faked with `clock.sleep`.
+
+fn site() -> Map<string, string> {
+  return [
+    "/": "the cat sat on the mat",
+    "/about": "the cat is a russian blue",
+    "/blog": "a blue mat",
+    "/contact": "write to the cat",
+  ]
+}
+
+fn fetch(url: string) -> string uses clock {
+  clock.sleep(100)
+  return site()[url] ?? ""
+}
+
+fn added(counts: Map<string, int>, words: List<string>) -> Map<string, int> {
+  let mut out = counts
+  for w in words {
+    out[w] = (out[w] ?? 0) + 1
+  }
+  return out
+}
+
+// Counts the words on every page, with `workers` tasks taking urls from a channel.
+fn countWords(urls: List<string>, workers: int) -> (Map<string, int>, int) uses tasks, clock {
+  return tasks.scope((s) => {
+    let todo: Channel<string> = s.channel(0)
+    let tally: Mutex<Map<string, int>> = s.mutex([:])
+    let fetched = s.atomic(0)
+    for _ in 0..workers {
+      s.spawn(() => {
+        // Until the channel is closed and empty.
+        for url in todo {
+          let words = strings.words(fetch(url))
+          fetched.add(1)
+          // Runs under the lock: it can only compute, so the lock is never held for long.
+          tally.update((counts) => added(counts, words))
+        }
+      })
+    }
+    for url in urls {
+      todo.send(url)
+    }
+    todo.close()
+    // The scope's function would end before its tasks do: wait for the crew before reading.
+    s.wait()
+    return (tally.get(), fetched.get())
+  })
+}
+
+// Numbers handed out to tasks at once: `updateWith` stores the next and gives this one back.
+fn tickets(n: int) -> List<int> uses tasks {
+  return tasks.scope((s) => {
+    let next = s.mutex(1)
+    let mut people: List<int> = []
+    for i in 0..n {
+      people.push(i)
+    }
+    return tasks.all(people, (person) => next.updateWith((t) => (t + 1, t))).sorted()
+  })
+}
+
+fn report(counts: Map<string, int>) -> string {
+  let mut lines: List<string> = []
+  for w in counts.keys().sorted() {
+    let n = counts[w] ?? 0
+    if n > 1 {
+      lines.push("${w} ${n}")
+    }
+  }
+  return lines.join(", ")
+}
+
+fn main() uses io, tasks, clock {
+  let start = clock.now()
+  let ((counts, fetched), contact) = tasks.both(() => countWords(site().keys(), 2), () => fetch("/contact"))
+  let took = clock.now() - start
+  io.println("words seen more than once: ${report(counts)}")
+  io.println("pages fetched: ${fetched}")
+  io.println("the contact page, fetched alongside: ${contact}")
+  io.println("4 pages by 2 workers took under 300 ms: ${took < 300}")
+  io.println("tickets: ${tickets(5).map((t) => t.toString()).join(" ")}")
+}
+
+// Tests run on the scheduler with virtual time, in a seeded order.

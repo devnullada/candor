@@ -1,0 +1,147 @@
+module alias
+
+test "spare capacity is never shared" {
+  let mut a: List<int> = []
+  a.push(1)
+  a.push(2)
+  a.push(3)
+  let b = a
+  let mut c = a
+  a.push(10)
+  c.push(20)
+  assert b == [1, 2, 3] && a == [1, 2, 3, 10] && c == [1, 2, 3, 20]
+}
+
+test "lists inside structs" {
+  let mut x = Bag { items: [] }
+  x.items.push(1)
+  x.items.push(2)
+  let mut y = x
+  x.items.push(3)
+  y.items.push(4)
+  assert x.items == [1, 2, 3] && y.items == [1, 2, 4]
+  assert x != y
+}
+
+test "pop then push" {
+  let mut s = [1, 2, 3]
+  let snap = s
+  let top = s.pop()
+  s.push(9)
+  assert snap == [1, 2, 3] && s == [1, 2, 9] && top == 3
+}
+
+test "assignment copies" {
+  let mut a: List<int> = []
+  a.push(1)
+  a.push(2)
+  let mut b: List<int> = []
+  b = a
+  b.push(3)
+  a.push(4)
+  assert a == [1, 2, 4] && b == [1, 2, 3]
+}
+
+test "loop vars are captured per iteration" {
+  let mut fs: List<fn() -> int> = []
+  for i in 0..3 {
+    fs.push(() => i * 10)
+  }
+  assert fs.map((f) => f()) == [0, 10, 20]
+}
+
+test "maps: copies never see a write" {
+  let mut a: Map<string, int> = [:]
+  a["x"] = 1
+  let b = a
+  let mut c = a
+  a["y"] = 2
+  c["x"] = 9
+  assert b == ["x": 1] && a == ["x": 1, "y": 2] && c == ["x": 9]
+  let d = bump(a)
+  a["w"] = 0
+  assert d.length() == 3 && !d.has("w") && !a.has("z")
+}
+
+test "maps inside structs, removal and reassignment" {
+  let mut s = Shelf { counts: ["a": 1] }
+  let t = s
+  s.counts["b"] = 2
+  assert t.counts == ["a": 1] && s.counts.length() == 2
+  let mut m = ["a": 1, "b": 2]
+  let snap = m
+  m.remove("a")
+  assert snap == ["a": 1, "b": 2] && m == ["b": 2]
+  let mut n: Map<string, int> = [:]
+  n = m
+  n["c"] = 3
+  assert m == ["b": 2]
+}
+
+test "maps: a loop sees the map as it was" {
+  let mut m = ["a": 1]
+  for (k, v) in m {
+    m[k + "!"] = v
+    m.remove(k)
+  }
+  assert m == ["a!": 1]
+}
+
+test "index writes never reach a copy" {
+  let mut a = [1, 2, 3]
+  let b = a
+  a[0] = 9
+  let mut c = a
+  c[1] = 8
+  a[2] = 7
+  assert a == [9, 2, 7] && b == [1, 2, 3] && c == [9, 8, 3]
+}
+
+test "index writes: a loop sees the list as it was" {
+  let mut a = [1, 2, 3]
+  let mut seen: List<int> = []
+  let mut i = 0
+  for x in a {
+    if i == 0 {
+      a[1] = 100
+    }
+    seen.push(x)
+    i += 1
+  }
+  assert seen == [1, 2, 3] && a == [1, 100, 3]
+}
+
+test "index writes: compound operators and a table filled in place" {
+  let mut fib = [0, 1, 0, 0, 0, 0]
+  for i in 2..6 {
+    fib[i] = (fib[i - 1] ?? 0) + (fib[i - 2] ?? 0)
+  }
+  fib[0] += 10
+  fib[1] *= 7
+  fib[5] -= 1
+  assert fib == [10, 7, 1, 2, 3, 4]
+}
+
+test "index writes: a list in a struct" {
+  let mut x = Bag { items: [1, 2] }
+  let y = x
+  x.items[0] = 5
+  x.items[1] += 1
+  assert x.items == [5, 3] && y.items == [1, 2]
+}
+
+test "index writes: a list handed on is not written again" {
+  let mut a = [1, 2]
+  a[0] = 3
+  let kept = keep(a)
+  a[1] = 4
+  a = [7]
+  a[0] = 8
+  assert kept.items == [3, 2] && a == [8]
+}
+
+test "index writes: effect state" {
+  alias.put(1, 5)
+  alias.put(2, 6)
+  assert alias.at(0) == 0 && alias.at(1) == 5 && alias.at(2) == 6 && alias.at(3) == -1
+}

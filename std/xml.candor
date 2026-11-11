@@ -1,0 +1,433 @@
+module xml
+
+import "fs"
+import "json"
+
+// XML as a tree. `xml.parse(source)` reads a document into its root element, leniently, as feed
+// readers must: HTML entities (`&nbsp;`), mismatched and unclosed tags, a bare `&`, unquoted
+// attributes, control characters, invalid UTF-8 (as U+FFFD), and the charset its declaration
+// names (`<?xml ... encoding="ISO-8859-1"?>`; one it doesn't know is read as UTF-8). Where even
+// that stops, what came before is the document: a document cut short (a feed whose download
+// broke off) gives the elements read so far, closed where it ended, and a closing tag nothing
+// opened ends it there. Go's encoding/xml calls both an error. So a truncated feed gives its
+// first items, not an error; `xml.parseStrict` refuses anything that isn't well-formed XML.
+//
+//   let feed = xml.parse(body)?
+//   for item in feed.child("channel").children("item") {
+//     let title = item.child("title").text().trim()
+//     let link = item.child("link").text()
+//     let url = item.child("enclosure").attr("url")              // string?
+//   }
+//
+// Names are local names, without their prefix: `<content:encoded>` is `encoded`, with the
+// namespace it stands for in `space` ("http://purl.org/rss/1.0/modules/content/"; "" for
+// none). A default namespace counts too: under `<rss xmlns="http://backend.userland.com/rss2">`
+// every unprefixed element has that `space`. Lookups match the local name in any namespace, and
+// `childIn(space, name)` when it matters. An undeclared prefix, which lenient reading lets through, stands as its own `space`.
+// Comments, processing instructions and the DOCTYPE are left out; CDATA is text.
+//
+// Give `parse` the document as it came, a response body or a file's bytes as text
+// (`b.toRawText()`), not text already converted from its charset. When the response's header
+// names the charset, `xml.parseWith(body, charset)` reads it in that one.
+//
+// Built in code, a tree is written with `xml.encode`, `xml.encodeIndented` or `xml.document`:
+//
+//   let opml = xml.element("opml", ["version": "2.0"], [
+//     xml.element("body", [:], feeds.map((f) => xml.element("outline", ["text": f.title, "xmlUrl": f.url], []))),
+//   ])
+//   xml.document(opml)   // `<?xml version="1.0" encoding="UTF-8"?>`, then the tree indented
+
+// Why `parseStrict` refused a document, or why `parse` read nothing: "line 3: element <b>
+// closed by </a>".
+pub struct Error {
+  pub line: int
+  pub message: string
+}
+
+impl Show for Error {
+  fn toString(self) -> string {
+    return "line ${self.line}: ${self.message}"
+  }
+}
+
+// An attribute: `name` is local, `space` its namespace ("" for none). A namespace declaration
+// is one too: `xmlns:media="..."` has the space "xmlns", and `xmlns="..."` the name "xmlns".
+pub struct Attr {
+  pub name: string
+  pub space: string
+  pub value: string
+}
+impl Json for Attr
+
+// A node of the tree: an element or the text between elements. Text keeps its whitespace, and
+// entities in it are decoded.
+pub enum Node {
+  Element { name: string, space: string, attrs: List<Attr>, children: List<Node> }
+  Text { value: string }
+}
+
+// As the Go reads it (`{"kind":"Element",...}`); `"${node}"` is its XML.
+impl Json for Node
+
+impl Show for Node {
+  fn toString(self) -> string {
+    return encode(self)
+  }
+}
+
+// Reading a `Node` a step at a time. What isn't there is an empty text node, so lookups chain:
+// `doc.child("channel").child("title").text()` is "" when either is missing. `children(name)
+// .first()` tells a missing element from an empty one.
+pub trait Lookup {
+  // The local name of an element; "" for text.
+  fn name(self) -> string
+  // The namespace of an element; "" for none, and for text.
+  fn space(self) -> string
+  // The first child element named `name`, in any namespace.
+  fn child(self, name: string) -> Node
+  // The first child element named `name` in the namespace `space`.
+  fn childIn(self, space: string, name: string) -> Node
+  // The child elements named `name`, in any namespace, in order.
+  fn children(self, name: string) -> List<Node>
+  fn childrenIn(self, space: string, name: string) -> List<Node>
+  // Every child element, in order; text left out.
+  fn elements(self) -> List<Node>
+  // Every child, elements and text, in order.
+  fn nodes(self) -> List<Node>
+  // The value of the attribute named `name`, in any namespace; none if there is none.
+  fn attr(self, name: string) -> string?
+  fn attrIn(self, space: string, name: string) -> string?
+  fn attrs(self) -> List<Attr>
+  // All the text inside, the elements' too, as written: `<b>a <i>b</i></b>` gives "a b".
+  fn text(self) -> string
+  // The text directly inside, not its elements': `<b>a <i>b</i> c</b>` gives "a  c".
+  fn ownText(self) -> string
+  // What is between the tags, as XML: `<content type="xhtml"><div>a &amp; <b>b</b></div></content>`
+  // gives `<div>a &amp; <b>b</b></div>`. Written from the tree, as `encode` writes it, so it is the
+  // same XML, not the same bytes: CDATA comes back as escaped text, entities as characters.
+  fn innerXml(self) -> string
+}
+
+impl Lookup for Node {
+  fn name(self) -> string {
+    return match self {
+      .Element { name } => name,
+      .Text => "",
+    }
+  }
+
+  fn space(self) -> string {
+    return match self {
+      .Element { space } => space,
+      .Text => "",
+    }
+  }
+
+  fn child(self, name: string) -> Node {
+    return self.children(name).first() ?? Node.Text { value: "" }
+  }
+
+  fn childIn(self, space: string, name: string) -> Node {
+    return self.childrenIn(space, name).first() ?? Node.Text { value: "" }
+  }
+
+  fn children(self, name: string) -> List<Node> {
+    return self.elements().filter((n) => n.name() == name)
+  }
+
+  fn childrenIn(self, space: string, name: string) -> List<Node> {
+    return self.elements().filter((n) => n.name() == name && n.space() == space)
+  }
+
+  fn elements(self) -> List<Node> {
+    return self.nodes().filter((n) => n.name() != "")
+  }
+
+  fn nodes(self) -> List<Node> {
+    return match self {
+      .Element { children } => children,
+      .Text => [],
+    }
+  }
+
+  fn attr(self, name: string) -> string? {
+    return self.attrs().filter((a) => a.name == name).first().map((a) => a.value)
+  }
+
+  fn attrIn(self, space: string, name: string) -> string? {
+    return self.attrs().filter((a) => a.name == name && a.space == space).first().map((a) => a.value)
+  }
+
+  fn attrs(self) -> List<Attr> {
+    return match self {
+      .Element { attrs } => attrs,
+      .Text => [],
+    }
+  }
+
+  fn text(self) -> string {
+    return match self {
+      .Element { children } => children.map((c) => c.text()).join(""),
+      .Text { value } => value,
+    }
+  }
+
+  fn ownText(self) -> string {
+    return match self {
+      .Element { children } => children.filter((c) => c.name() == "").map((c) => c.text()).join(""),
+      .Text { value } => value,
+    }
+  }
+
+  fn innerXml(self) -> string {
+    return match self {
+      .Element { children } => children.map((c) => encode(c)).join(""),
+      .Text { value } => escapeText(value),
+    }
+  }
+}
+
+extern "./xmlgo" {
+  fn Parse(text: string, strict: bool, charset: string) -> string as goParse
+}
+
+struct Parsed {
+  root: Node?
+  line: int
+  message: string
+}
+impl Json for Parsed
+
+// The root element of `source`, read leniently; an `Err` only when no element could be read.
+pub fn parse(source: string) -> Result<Node, Error> {
+  return read(source, false, "")
+}
+
+// `parse`, reading `source` in `charset` whatever its declaration says, as feed readers do with
+// the `charset=` of a response's Content-Type. A charset `bytes.decode` doesn't know is passed
+// over: the declaration's is read, as by `parse`.
+pub fn parseWith(source: string, charset: string) -> Result<Node, Error> {
+  return read(source, false, charset)
+}
+
+// The root element of `source`, which must be well-formed XML: one root, every tag closed, only
+// XML's five entities, quoted attributes.
+pub fn parseStrict(source: string) -> Result<Node, Error> {
+  return read(source, true, "")
+}
+
+fn read(source: string, strict: bool, charset: string) -> Result<Node, Error> {
+  // Go wrote it from its own structs, so it always decodes.
+  return match json.decode<Parsed>(goParse(source, strict, charset)) {
+    Ok(p) => match p.root {
+      none => Err(Error { line: p.line, message: p.message }),
+      root => Ok(root),
+    },
+    Err(e) => Err(Error { line: 0, message: e.message }),
+  }
+}
+
+// A document too large to hold whole, read from a reader: `each` is given every
+// element named one of `names`, as a small tree, and folds them as `fs.watch` folds its changes
+// (`.Continue { value }` to go on, `.Stop { value }` to stop reading there). What comes back
+// beside the fold's value is the rest of the document, those elements left out of it, so a
+// feed's own title and link are read as from `parse`:
+//
+//   let (count, rest) = http.readingResponse(res, (r) => xml.elements(r, ["item", "entry"], 0, (n, item) => {
+//     save(item.child("title").text().trim())
+//     return .Continue { value: n + 1 }
+//   }))?
+//   let title = rest.child("channel").child("title").text()   // RSS; Atom's is rest.child("title")
+//
+// Names are local names, as lookups match them; an element named one of `names` inside one
+// being read stays in it, a child. Read leniently, as `parse` reads: a document cut short ends
+// after the last element read whole, the one it broke off in left out. A failure of the reader
+// is an `Err` (at line 0, its message the reader's), even after elements were given. When `each`
+// stops, the rest is what was read until then; it is an empty text node when the root itself
+// was one of `names`.
+pub fn elements<A>(r: fn(int) -> Result<Bytes?, string>, names: List<string>, start: A, each: fn(A, Node) -> fs.Step<A>) -> Result<(A, Node), Error> uses r, each {
+  return scan(r, names, false, "", start, each)
+}
+
+// `elements`, reading in `charset` whatever the declaration says, as `parseWith` does.
+pub fn elementsWith<A>(r: fn(int) -> Result<Bytes?, string>, charset: string, names: List<string>, start: A, each: fn(A, Node) -> fs.Step<A>) -> Result<(A, Node), Error> uses r, each {
+  return scan(r, names, false, charset, start, each)
+}
+
+// `elements` for a document that must be well-formed XML, as `parseStrict` reads it: the
+// first thing wrong is an `Err`, after the elements before it were given.
+pub fn elementsStrict<A>(r: fn(int) -> Result<Bytes?, string>, names: List<string>, start: A, each: fn(A, Node) -> fs.Step<A>) -> Result<(A, Node), Error> uses r, each {
+  return scan(r, names, true, "", start, each)
+}
+
+fn scan<A>(r: fn(int) -> Result<Bytes?, string>, names: List<string>, strict: bool, charset: string, start: A, each: fn(A, Node) -> fs.Step<A>) -> Result<(A, Node), Error> uses r, each {
+  // The compiler gives this its body (`stdBody` in emit-go), std/xmlgo's Elements calling these.
+  let step = each(start, nodeOf(""))
+  if goesOn(step) {
+    return finish(valueOf(step), "")
+  }
+  return finish(start, "")
+}
+
+// An element std/xmlgo wrote as JSON.
+fn nodeOf(s: string) -> Node {
+  return match json.decode<Node>(s) {
+    Ok(n) => n,
+    Err(_) => Node.Text { value: "" },
+  }
+}
+
+fn goesOn<A>(step: fs.Step<A>) -> bool {
+  return match step {
+    .Continue => true,
+    .Stop => false,
+  }
+}
+
+fn valueOf<A>(step: fs.Step<A>) -> A {
+  return match step {
+    .Continue { value } => value,
+    .Stop { value } => value,
+  }
+}
+
+// The fold's value and the rest as std/xmlgo wrote it, as `read` reads it.
+fn finish<A>(value: A, rest: string) -> Result<(A, Node), Error> {
+  return match json.decode<Parsed>(rest) {
+    Ok(p) => match p.root {
+      none => if p.message == "" { Ok((value, Node.Text { value: "" })) } else { Err(Error { line: p.line, message: p.message }) },
+      root => Ok((value, root)),
+    },
+    Err(e) => Err(Error { line: 0, message: e.message }),
+  }
+}
+
+// An element in no namespace, its attributes in the order given: `xml.element("a", ["href":
+// url], [xml.text("here")])`. One in a namespace is written out:
+// `xml.Node.Element { name: "feed", space: "http://www.w3.org/2005/Atom", attrs: [], children: [...] }`.
+pub fn element(name: string, attrs: Map<string, string>, children: List<Node>) -> Node {
+  return Node.Element { name, space: "", attrs: attrs.entries().map((e) => Attr { name: e.0, space: "", value: e.1 }), children }
+}
+
+// A text node; `encode` escapes it.
+pub fn text(value: string) -> Node {
+  return Node.Text { value }
+}
+
+// `s` with `&`, `<`, `>`, `"` and `'` escaped, for text or an attribute value.
+pub fn escape(s: string) -> string {
+  return escapeText(s).replaceAll("\"", "&quot;").replaceAll("'", "&apos;")
+}
+
+// Text between tags needs only `&`, `<` and `>` escaped; `encode` leaves its quotes as they are.
+fn escapeText(s: string) -> string {
+  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+}
+
+// `node` as XML on one line, as it is: its text and whitespace kept. A tree read by `parse`
+// is written as it was read, prefixes included. Built in code: an element in no namespace takes
+// its parent's, one whose namespace has a prefix declared around it gets that prefix, and any
+// other says `xmlns="..."`; an attribute in a namespace gets its prefix, or one made up (`ns1`)
+// and declared.
+pub fn encode(node: Node) -> string {
+  return write(node, "", [:], -1)
+}
+
+// `node` as XML over several lines, two spaces a level, for files people read: whitespace-only
+// text between elements is left out, and an element holding other text is written on one line.
+// No newline at the end.
+pub fn encodeIndented(node: Node) -> string {
+  return write(node, "", [:], 0)
+}
+
+// A whole document: the declaration `<?xml version="1.0" encoding="UTF-8"?>`, then `node`
+// indented, then a newline.
+pub fn document(node: Node) -> string {
+  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + encodeIndented(node) + "\n"
+}
+
+const xmlSpace = "http://www.w3.org/XML/1998/namespace"
+
+// `outer` is the default namespace around `node`, `prefixes` the prefix for each namespace
+// declared around it, and `depth` its level when indenting (-1: not).
+fn write(node: Node, outer: string, prefixes: Map<string, string>, depth: int) -> string {
+  return match node {
+    .Text { value } => escapeText(value),
+    .Element { name, space, attrs, children } => {
+      let mut known = prefixes
+      for a in attrs {
+        if a.space == "xmlns" {
+          known[a.value] = a.name
+        }
+      }
+      let mut out: List<string> = []
+      for a in attrs {
+        let mut prefix = ""
+        if a.space == "xmlns" {
+          prefix = "xmlns:"
+        } else if a.space == xmlSpace {
+          prefix = "xml:"
+        } else if a.space != "" {
+          match known[a.space] {
+            none => {
+              let made = "ns${known.length() + 1}"
+              known[a.space] = made
+              out.push(" xmlns:${made}=\"${escape(a.space)}\"")
+              prefix = made + ":"
+            },
+            p => {
+              prefix = p + ":"
+            },
+          }
+        }
+        out.push(" ${prefix}${a.name}=\"${escape(a.value)}\"")
+      }
+      let scope = known
+      // The element's own `xmlns="..."` sets the default namespace, as read. Otherwise one in no
+      // namespace, or in its parent's, takes the parent's; one in a namespace with a prefix
+      // around it is written with the prefix; any other declares its namespace.
+      let says = attrs.filter((a) => a.space == "" && a.name == "xmlns").first().map((a) => a.value)
+      let mut tag = name
+      let mut current = outer
+      let mut declare = ""
+      match says {
+        none => {
+          if space != "" && space != outer {
+            match known[space] {
+              none => {
+                current = space
+                declare = " xmlns=\"${escape(space)}\""
+              },
+              p => {
+                tag = "${p}:${name}"
+              },
+            }
+          }
+        },
+        v => {
+          current = v
+        },
+      }
+      let inside = current
+      let open = "<${tag}${declare}${out.join("")}"
+      if children.isEmpty() {
+        return open + "/>"
+      }
+      // Indented only where the text between elements is whitespace.
+      let mixed = children.any((c) => match c {
+        .Text { value } => !value.trim().isEmpty(),
+        _ => false,
+      })
+      if depth < 0 || mixed {
+        let inner = children.map((c) => write(c, inside, scope, -1)).join("")
+        return "${open}>${inner}</${tag}>"
+      }
+      let pad = "  ".repeat(depth + 1)
+      let inner = children.filter((c) => c.name() != "").map((c) => "\n${pad}${write(c, inside, scope, depth + 1)}").join("")
+      if inner.isEmpty() {
+        return open + "/>"
+      }
+      return "${open}>${inner}\n${"  ".repeat(depth)}</${tag}>"
+    },
+  }
+}

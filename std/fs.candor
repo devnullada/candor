@@ -1,0 +1,310 @@
+module fs
+
+// Files: `fs.read(path)`, `fs.write(path, text)`, `fs.append`, `fs.sync` and `fs.truncate` for
+// a log that must survive a crash, `fs.exists`, `fs.info`,
+// `fs.remove`, `fs.removeAll`, `fs.rename`, `fs.copy`, `fs.list`, `fs.makeDir`, `fs.readLines`
+// for a file too large to hold, `fs.readBytes`, `fs.writeBytes` for one that isn't text, and
+// `fs.readRange` for a part of one, `fs.reading` and `fs.writing` for a reader or a writer over
+// one, and `fs.watch` for changes as they happen, with `uses fs`.
+// Paths are as given: relative to the working directory, or absolute. A path from a request
+// goes through `fs.within(root, path)` first, which keeps it inside `root`; `fs.join(root,
+// path)` puts two together with the root's separator.
+//
+// `fs.read` gives a file that isn't UTF-8 as it is, its bytes in the string, and
+// `text.toBytes()` gets them back exactly; `fs.readBytes` says what it means.
+//
+// In a test the file system is in memory, empty but for the current directory and fresh for
+// every test: fill it with `fs.write` and look with `fs.read`, as the code under test does.
+
+// Why a file operation failed. `path` is the path as given.
+pub enum FsError {
+  // Nothing at the path, or its directory is missing.
+  NotFound { path: string }
+  // The operating system said no.
+  Denied { path: string }
+  // Anything else: a directory where a file was wanted, a directory not empty, a full disk.
+  Failed { path: string, message: string }
+}
+
+impl Show for FsError {
+  fn toString(self) -> string {
+    return match self {
+      .NotFound { path } => "${path}: not found",
+      .Denied { path } => "${path}: permission denied",
+      .Failed { path, message } => "${path}: ${message}",
+    }
+  }
+}
+
+// What `fs.info` tells about a file or a directory.
+pub struct FileInfo {
+  // In bytes; 0 for a directory.
+  pub size: int
+  // When it was last written, in milliseconds since 1970 like `clock.now()`. In a test, the
+  // test's time at the write.
+  pub modified: int
+  pub isDir: bool
+}
+
+// A change `fs.watch` saw: what happened, and where, relative to the directory watched with `/`
+// between names (`"takes/kick.wav"`; `fs.join(root, c.path)` for the whole path).
+pub struct Change {
+  pub kind: ChangeKind
+  pub path: string
+}
+
+pub enum ChangeKind {
+  Created
+  Changed
+  Removed
+}
+
+// `"created"`, `"changed"`, `"removed"`: an event's name, say.
+impl Show for ChangeKind {
+  fn toString(self) -> string {
+    return match self {
+      .Created => "created",
+      .Changed => "changed",
+      .Removed => "removed",
+    }
+  }
+}
+
+// What `fs.watch`'s function says after each change: go on with `value`, or stop and give it.
+pub enum Step<A> {
+  Continue { value: A }
+  Stop { value: A }
+}
+
+// Having `fs` is the permission; the files are the runtime's.
+effect fs {}
+
+fake fs {}
+
+// The runtime's error as an FsError (`stdBody` in emit-go calls it).
+fn fsError(kind: int, path: string, message: string) -> FsError {
+  return match kind {
+    0 => FsError.NotFound { path },
+    1 => FsError.Denied { path },
+    _ => FsError.Failed { path, message },
+  }
+}
+
+// The whole file, as text.
+pub fn read(path: string) -> Result<string, FsError> uses fs {
+  // The compiler gives these their bodies (`stdBody` in emit-go).
+  return Err(fsError(2, path, ""))
+}
+
+// Replaces the file's text, making the file if it's missing (its directory must exist:
+// `fs.makeDir`).
+pub fn write(path: string, text: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, text))
+}
+
+// The whole file, as bytes: for a file that isn't text, or may not be UTF-8.
+pub fn readBytes(path: string) -> Result<Bytes, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Up to `length` bytes from `offset`, reading only those: a WAV's header, a part of a large
+// file. Fewer at the end of the file, none past it; a negative `offset` or `length` counts as 0.
+//
+//   let header = fs.readRange("take1.wav", 0, 44)?
+pub fn readRange(path: string, offset: int, length: int) -> Result<Bytes, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Replaces the file's bytes, making the file if it's missing (its directory must exist).
+pub fn writeBytes(path: string, data: Bytes) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Adds `text` at the end of the file, making it if it's missing.
+pub fn append(path: string, text: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, text))
+}
+
+// Flushes the file to the disk, so what was written survives a crash or a power cut (Go's
+// `file.Sync()`): after an `fs.append` to a log that must not lose it. A directory too, for the
+// files made or renamed in it (on Windows that does nothing). In a test it only checks `path` is
+// there.
+//
+//   fs.append(log, record)?
+//   fs.sync(log)?
+pub fn sync(path: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Cuts the file to `size` bytes, or adds zero bytes up to it; the file must exist. For a log
+// whose last record was torn by a crash: `fs.truncate(log, whole)`. A negative size is a
+// `Failed`.
+pub fn truncate(path: string, size: int) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, "${size}"))
+}
+
+// `path` inside `root`: `fs.within("public", "css/site.css")` is `"public/css/site.css"`. None
+// if `path` is absolute, has a `:` (a drive), or climbs out of `root` with `..`; `\` counts as
+// `/`. For a path from a request:
+//
+//   match fs.within("uploads", name) {
+//     none => http.textResponse(404, "not found"),
+//     file => ...,
+//   }
+//
+// (`http.serveDir` does this for files served as they are.)
+// It goes by the path's text, so a symbolic link inside `root` that points out of it is
+// followed; don't keep such links under a root you serve.
+pub fn within(root: string, path: string) -> string? {
+  return none
+}
+
+// `path` after `root`, with the root's separator: `fs.join("D:\\Sounds", "takes/kick.wav")` is
+// `"D:\\Sounds\\takes\\kick.wav"`, `fs.join("public", "css/site.css")` is
+// `"public/css/site.css"`. `.` and `..` are resolved; unlike `within` it keeps nothing inside
+// `root`, so a path from a request goes through `within` instead.
+pub fn join(root: string, path: string) -> string {
+  return root
+}
+
+// Watches the directory at `path` and every directory under it (or the file at `path`), as
+// `fold` does: `each` combines what it has so far with the next change and says whether to go
+// on. It waits for changes until `each` stops it or the task ends (`tasks.timeout`, a client
+// gone).
+//
+//   fs.watch("sounds", 0, (n, c) => {
+//     send("${c.kind}: ${c.path}")
+//     return .Continue { value: n + 1 }
+//   })?
+//
+// A burst on one path (an editor's save, a copy) is one change, about 0.1 s after it settles;
+// a file made and removed in one burst is none. A directory made later is watched too, and what
+// is already in it comes as Created; a directory removed gives Removed for everything in it,
+// deepest first. `Err` if `path` is missing, or once the directory is removed.
+//
+// A file's path watches that file alone, through its directory: an editor that saves by
+// writing a new file and renaming it over the old one is one Changed, a removal is Removed and
+// the watch goes on, so a config file can come back. Each change's path is the file's name.
+//
+// In a test the changes are the test's own writes, each one a change, from the moment the watch
+// begins: start the watch in a task, then `clock.sleep(1)` before writing, as the clock moves
+// only once every task waits.
+pub fn watch<A>(path: string, start: A, each: fn(A, Change) -> Step<A>) -> Result<A, FsError> uses fs, each {
+  let file = !info(path)?.isDir
+  let name = path.slice((path.lastIndexOf("/") ?? -1).max(path.lastIndexOf("\\") ?? -1) + 1)
+  let dir = if file { join(path, "..") } else { path }
+  let id = startWatch(dir)?
+  defer {
+    stopWatch(id)
+  }
+  let mut acc = start
+  while true {
+    let next = nextChange(id)
+    let kind = match next.slice(0, 1) {
+      "c" => ChangeKind.Created,
+      "m" => ChangeKind.Changed,
+      "r" => ChangeKind.Removed,
+      "x" => return Err(FsError.NotFound { path: dir }),
+      _ => return Err(FsError.Failed { path: dir, message: next.slice(1) }),
+    }
+    if file && next.slice(1) != name {
+      continue
+    }
+    match each(acc, Change { kind, path: next.slice(1) }) {
+      .Continue { value } => acc = value,
+      .Stop { value } => return Ok(value),
+    }
+  }
+  return Ok(acc)
+}
+
+// `watch`'s steps, given their bodies by the compiler: an id, the next change as a kind letter
+// and a path, and the end.
+fn startWatch(path: string) -> Result<int, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+fn nextChange(id: int) -> string uses fs {
+  return ""
+}
+
+fn stopWatch(id: int) uses fs {
+}
+
+// The file's or directory's size, when it was last written, and which it is.
+pub fn info(path: string) -> Result<FileInfo, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Moves a file or a directory to `to`, replacing a file already there (not a directory). The
+// directory `to` goes in must exist. An error names `from`.
+pub fn rename(from: string, to: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, from, to))
+}
+
+// Copies a file's bytes to `to`, replacing a file already there, a piece at a time.
+pub fn copy(from: string, to: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, from, to))
+}
+
+// Removes a file, or a directory and everything in it. Nothing at `path` is fine. It refuses a
+// root (`/`, `C:\`), the working directory (`.`) and the ones above it (`..`).
+pub fn removeAll(path: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// `env.load(path)`: the checker sends that call here, as its error is an FsError.
+fn loadEnv(path: string) -> Result<void, FsError> uses fs, env {
+  return Err(fsError(2, path, ""))
+}
+
+// Whether there is a file or a directory at `path`.
+pub fn exists(path: string) -> bool uses fs {
+  return false
+}
+
+// Removes a file, or a directory that is empty.
+pub fn remove(path: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// The names in a directory (files and directories, not their paths), sorted.
+pub fn list(path: string) -> Result<List<string>, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Makes the directory and any missing above it; one already there is fine.
+pub fn makeDir(path: string) -> Result<void, FsError> uses fs {
+  return Err(fsError(2, path, ""))
+}
+
+// Opens the file and gives `f` a reader over it: `r(n)` is up to `n` bytes (below 1, a buffer's
+// worth), `none` at the end. The file is closed when `f` returns; `bytes.readLines(r, ...)`,
+// `bytes.readAll(r)` and `json.decodeFrom<T>(r)` read one. A function that takes a reader
+// declares `uses r`, so it takes on `fs` from this one and stays pure on `bytes.reading`'s.
+//
+//   let db = fs.reading("data.db", (r) => load(r))?
+//
+//   fn load(r: fn(int) -> Result<Bytes?, string>) -> Result<Db, string> uses r { ... }
+//
+// An error is text: the file's, as `FsError` shows it, or what `f` gave.
+pub fn reading<T>(path: string, f: fn(fn(int) -> Result<Bytes?, string> uses fs) -> Result<T, string>) -> Result<T, string> uses fs, f {
+  return Err(path)
+}
+
+// Gives `f` a writer, `w(piece)`, into a new file beside `path`, which replaces the file at
+// `path` once `f` gives `Ok` (and is on the disk). On an `Err`, a crash or a cancel it is
+// removed and `path` is as it was: never half written. `path`'s directory must exist.
+//
+//   fs.writing("data.db", (w) => save(db, w))?
+pub fn writing<T>(path: string, f: fn(fn(Bytes) -> Result<void, string> uses fs) -> Result<T, string>) -> Result<T, string> uses fs, f {
+  return Err(path)
+}
+
+// Reads the file a line at a time, as `fold` does: `each` combines what it has so far with the
+// next line, without its line ending (`\n` or `\r\n`). For files too large to hold.
+//
+//   let errors = fs.readLines("app.log", 0, (n, line) => if line.contains("ERROR") { n + 1 } else { n })?
+pub fn readLines<A>(path: string, start: A, each: fn(A, string) -> A) -> Result<A, FsError> uses fs, each {
+  return Err(fsError(2, path, ""))
+}

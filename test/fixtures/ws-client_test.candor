@@ -1,0 +1,37 @@
+module wsclient
+
+test "the fake: the app's handler is the server" {
+  http.answer(handle)
+  assert talk("ws://test", ["one", "two"]) == Ok()
+  assert io.output() == "hello ada and bo\nclosed\necho: one\necho: two\n"
+  assert http.sent().map((r) => r.url) == ["ws://test/hello", "ws://test/echo"]
+}
+
+test "the fake: binary messages" {
+  http.answer(handle)
+  assert binary("ws://test") == Ok()
+  assert io.output() == "binary 0102ff0102ff\ntext got hi\nlast\n"
+}
+
+test "the fake: no upgrade, or nothing answering, is an Err" {
+  http.answer(handle)
+  assert http.connect("ws://test/nope", (ws) => {}) == Err(http.HttpError.Failed { message: "ws://test/nope answered 404, not a WebSocket" })
+}
+
+test "the fake: nothing set up" {
+  match http.connect("ws://test/echo", (ws) => {}) {
+    Ok() => assert false,
+    Err(e) => assert "${e}".startsWith("nothing answers the WebSocket at ws://test/echo"),
+  }
+}
+
+// Fails on purpose: test/ws-client.test.ts checks how.
+test "a crash in the handler's function fails the test" {
+  http.answer((req) => http.upgrade(req, (ws) => {
+    let xs = [1]
+    ws.send("${xs[1] ?? 0 / (xs.length() - 1)}")
+  }))
+  assert http.connect("ws://test/x", (ws) => {
+    ws.receive()
+  }) == Ok()
+}

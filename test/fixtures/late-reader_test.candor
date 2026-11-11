@@ -1,0 +1,5 @@
+module latereader
+
+test "the reader never sees a half-done stage" {
+  assert watch() != 20
+}

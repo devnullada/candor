@@ -1,0 +1,8 @@
+{
+  "name": "candor",
+  "description": "Write, port and test code in Candor, a backend language for AI coders that compiles to Go.",
+  "version": "0.0.1",
+  "author": { "name": "The Candor Authors" },
+  "homepage": "https://github.com/devnullada/candor",
+  "license": "MIT OR Apache-2.0"
+}

@@ -1,0 +1,6 @@
+user1, user2, user3
+3 lookups of 200 ms took under 400 ms: true
+user7 scores 70
+failed: no user -1
+fastest: 20
+timed out

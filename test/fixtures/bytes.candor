@@ -1,0 +1,62 @@
+module hexdump
+
+import "bytes"
+import "fs"
+import "json"
+
+// Writes a small binary file, reads it back and dumps it as hex, 8 bytes a line with the text
+// beside: the same code on disk (`main`) and in memory (the tests).
+
+struct Upload {
+  name: string
+  data: Bytes
+}
+
+impl Json for Upload
+
+// One line of the dump: offset, hex, and the bytes that are printable ASCII.
+fn line(offset: int, chunk: Bytes) -> string {
+  let mut hex: List<string> = []
+  let mut text = ""
+  for x in chunk.toList() {
+    hex.push(bytes.fromList([x]).toHex())
+    text = text + (if x >= 32 && x < 127 { x.toChar().map((c) => c.toString()) ?? "." } else { "." })
+  }
+  return "${offset.toString().padStart(4, "0")}  ${hex.join(" ").padEnd(23, " ")}  ${text}"
+}
+
+fn dump(data: Bytes) -> List<string> {
+  let mut out: List<string> = []
+  let mut i = 0
+  while i < data.length() {
+    out.push(line(i, data.slice(i, i + 8)))
+    i = i + 8
+  }
+  return out
+}
+
+fn roundTrip(path: string) -> Result<List<string>, fs.FsError> uses fs {
+  let png = bytes.fromHex("89504e470d0a1a0a")
+  let data = (png ?? "".toBytes()).concat("hi, bytes\n".toBytes()).concat(bytes.fromList([0, 255]))
+  fs.writeBytes(path, data)?
+  return Ok(dump(fs.readBytes(path)?))
+}
+
+fn main() uses io, fs {
+  match roundTrip("out.bin") {
+    Ok(lines) => {
+      for l in lines {
+        io.println(l)
+      }
+    },
+    Err(e) => io.println("failed: ${e}"),
+  }
+  // The text read of a file that isn't UTF-8 is `none` through toText.
+  io.println("${fs.readBytes("out.bin").map((b) => b.toText())}")
+  match fs.remove("out.bin") {
+    Ok() => {},
+    Err(e) => io.println("failed: ${e}"),
+  }
+  let up = Upload { name: "a.bin", data: bytes.fromList([1, 2, 3, 250]) }
+  io.println(json.encode(up))
+}

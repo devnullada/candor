@@ -1,0 +1,72 @@
+module org
+
+// Who reports to whom, with optionals tested and then used as values: after `x != none`,
+// or a guard that returns, `x` is the value itself.
+
+struct Person {
+  name: string
+  boss: Person?
+  age: int?
+}
+
+fn greet(p: Person?) -> string {
+  if p == none {
+    return "nobody to greet"
+  }
+  return "hi ${p.name}"
+}
+
+// A field narrows too, and so does a field of it.
+fn chain(p: Person) -> string {
+  if p.boss != none && p.boss.boss != none {
+    return "${p.name} -> ${p.boss.name} -> ${p.boss.boss.name}"
+  }
+  if p.boss != none {
+    return "${p.name} -> ${p.boss.name}"
+  }
+  return p.name
+}
+
+fn adult(p: Person) -> bool {
+  return p.age != none && p.age >= 18
+}
+
+// A `let mut` stays narrowed until it is assigned; `best = x` makes it present again.
+fn oldest(people: List<Person>) -> string {
+  let mut best: int? = none
+  let mut who = "nobody"
+  for p in people {
+    if p.age != none && (best == none || p.age > best) {
+      best = p.age
+      who = p.name
+    }
+  }
+  if best == none {
+    return who
+  }
+  return "${who}, ${best}"
+}
+
+// Inside the loop `left` is a Person; the assignment ends that, and the condition tests it again.
+fn levels(p: Person) -> int {
+  let mut left = p.boss
+  let mut n = 0
+  while left != none {
+    n += 1
+    left = left.boss
+  }
+  return n
+}
+
+fn main() uses io {
+  let ada = Person { name: "Ada", boss: none, age: 52 }
+  let bo = Person { name: "Bo", boss: ada, age: none }
+  let cy = Person { name: "Cy", boss: bo, age: 17 }
+  io.println(greet(cy))
+  io.println(greet(none))
+  io.println(chain(cy))
+  io.println(chain(bo))
+  io.println("adults: ${adult(ada)} ${adult(bo)} ${adult(cy)}")
+  io.println("oldest: ${oldest([cy, bo, ada])}")
+  io.println("levels above Cy: ${levels(cy)}")
+}

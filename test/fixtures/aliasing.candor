@@ -1,0 +1,43 @@
+module alias
+
+struct Bag {
+  items: List<int>
+}
+
+struct Shelf {
+  counts: Map<string, int>
+}
+
+fn bump(m: Map<string, int>) -> Map<string, int> {
+  let mut out = m
+  out["z"] = 26
+  return out
+}
+
+fn keep(xs: List<int>) -> Bag {
+  return Bag { items: xs }
+}
+
+effect alias {
+  let mut slots = [0, 0, 0]
+
+  pub fn put(i: int, v: int) {
+    slots[i] = v
+  }
+
+  pub fn at(i: int) -> int {
+    return slots[i] ?? -1
+  }
+}
+
+fake alias {
+  let mut slots = [0, 0, 0]
+
+  fn put(i: int, v: int) {
+    slots[i] = v
+  }
+
+  fn at(i: int) -> int {
+    return slots[i] ?? -1
+  }
+}

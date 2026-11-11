@@ -1,0 +1,6 @@
+Max Connections: 255 (0xff)
+Workers: 4 (0x4)
+skipped: strconv.Atoi: parsing "soon": invalid syntax
+skipped: limit: too large for an int
+skipped: expected name=value, found "verbose"
+bindings|are|functions

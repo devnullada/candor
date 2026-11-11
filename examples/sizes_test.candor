@@ -1,0 +1,5 @@
+module sizes
+
+test "sizes" {
+  assert describe("2 KB") == "2 KB is 2,000 bytes, or 2.0 kB"
+}

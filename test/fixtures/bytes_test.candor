@@ -1,0 +1,56 @@
+module hexdump
+
+test "the dump, in memory" {
+  assert roundTrip("x.bin") == Ok([
+    "0000  89 50 4e 47 0d 0a 1a 0a  .PNG....",
+    "0008  68 69 2c 20 62 79 74 65  hi, byte",
+    "0016  73 0a 00 ff              s...",
+  ])
+  assert fs.read("x.bin").map((s) => s.byteLength()) == Ok(20)
+  assert fs.readBytes("nope.bin") == Err(fs.FsError.NotFound { path: "nope.bin" })
+}
+
+test "methods" {
+  let b = "héllo".toBytes()
+  assert b.length() == 6
+  assert !b.isEmpty() && "".toBytes().isEmpty()
+  assert b.at(0) == 104 && b.at(6) == none && b.at(-1) == none
+  assert b.slice(1, 3) == bytes.fromList([195, 169])
+  assert b.slice(-5, 99) == b && b.slice(4, 2).isEmpty()
+  assert b.indexOf("llo".toBytes()) == 3 && b.indexOf("x".toBytes()) == none
+  assert b.toText() == "héllo" && b.slice(0, 2).toText() == none
+  assert b.toList() == [104, 195, 169, 108, 108, 111]
+  // concat makes new bytes: a slice's spare room isn't written into.
+  let head = b.slice(0, 1)
+  let x = head.concat("X".toBytes())
+  let y = head.concat("Y".toBytes())
+  assert x.toText() == "hX" && y.toText() == "hY" && b.toText() == "héllo"
+}
+
+test "hex and base64" {
+  let b = bytes.fromList([0, 1, 127, 128, 255])
+  assert b.toHex() == "00017f80ff"
+  assert bytes.fromHex("00017F80FF") == b
+  assert bytes.fromHex("abc") == none && bytes.fromHex("zz") == none
+  assert b.toBase64() == "AAF/gP8="
+  assert bytes.fromBase64("AAF/gP8=") == b && bytes.fromBase64("AAF/gP8") == b
+  assert bytes.fromBase64("AAF_gP8") == b
+  assert bytes.fromBase64("not base64!") == none
+}
+
+test "equality, maps and JSON" {
+  let m: Map<Bytes, string> = ["a".toBytes(): "first", bytes.fromList([0]): "zero"]
+  assert m["a".toBytes()] == "first" && m[bytes.fromList([0])] == "zero" && m["b".toBytes()] == none
+  assert ["x".toBytes()] == [bytes.fromList([120])]
+  let up = Upload { name: "a.bin", data: bytes.fromList([1, 2, 3, 250]) }
+  assert json.encode(up) == "{\"name\":\"a.bin\",\"data\":\"AQID+g==\"}"
+  assert json.decode<Upload>(json.encode(up)) == Ok(up)
+  match json.decode<Upload>("{\"name\":\"a\",\"data\":5}") {
+    Ok(_) => assert false,
+    Err(e) => assert "${e}" == "$.data: expected a string of base64, found 5",
+  }
+}
+
+test "a number that isn't a byte" {
+  bytes.fromList([1, 256])
+}

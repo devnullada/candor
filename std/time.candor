@@ -1,0 +1,273 @@
+module time
+
+// Dates and times on Candor's times: an `int` of milliseconds since 1970-01-01T00:00:00Z, as
+// `clock.now()` gives. UTC unless a function takes a `Zone`. Every function is pure, so tests
+// call them with any time.
+//
+//   time.format(clock.now())                  // "2026-10-25T10:00:00.000Z"
+//   time.parse("2026-10-25T10:00:00Z")?       // 1792922400000
+//   time.addDays(t, 1) or t + time.days(1)    // the same; addMonths knows month ends
+//
+// Zones come from the zone database built into the program, by name; the `...In` functions
+// work on that zone's clocks, daylight saving included. Other layouts are read and written in
+// Go's layout language:
+//
+//   let oslo = time.zone("Europe/Oslo") ?? time.utcZone()
+//   time.partsIn(t, oslo).hour; time.startOfDayIn(t, oslo)
+//   time.parseLayout("Tue, 27 Oct 2026 09:00:00 EST", "Mon, 02 Jan 2006 15:04:05 MST")?
+//
+// In JSON a time is a number unless you store `time.format(t)`, a string.
+
+// A time's calendar parts, in UTC (`partsIn` for a zone's clocks). `month` is 1 to 12, `weekday` 1 (Monday) to 7 (Sunday),
+// `yearDay` 1 to 366.
+pub struct Parts {
+  pub year: int
+  pub month: int
+  pub day: int
+  pub hour: int
+  pub minute: int
+  pub second: int
+  pub millisecond: int
+  pub weekday: int
+  pub yearDay: int
+}
+
+extern "./timego" {
+  fn Format(ms: int) -> string as goFormat
+  fn FormatDate(ms: int) -> string as goFormatDate
+  fn Parse(s: string) -> Result<int, GoError> as goParse
+  fn Date(year: int, month: int, day: int, hour: int, minute: int, second: int) -> int as goDate
+  fn Valid(year: int, month: int, day: int, hour: int, minute: int, second: int) -> bool as goValid
+  fn AddMonths(ms: int, n: int) -> int as goAddMonths
+  fn ZoneOk(name: string) -> bool as goZoneOk
+  fn PartsIn(ms: int, zone: string) -> string as goPartsIn
+  fn OffsetIn(ms: int, zone: string) -> int as goOffsetIn
+  fn FormatIn(ms: int, zone: string) -> string as goFormatIn
+  fn FormatDateIn(ms: int, zone: string) -> string as goFormatDateIn
+  fn DateIn(zone: string, year: int, month: int, day: int, hour: int, minute: int, second: int) -> int as goDateIn
+  fn ValidIn(zone: string, year: int, month: int, day: int, hour: int, minute: int, second: int) -> bool as goValidIn
+  fn StartOfDayIn(ms: int, zone: string) -> int as goStartOfDayIn
+  fn AddDaysIn(ms: int, n: int, zone: string) -> int as goAddDaysIn
+  fn DaysBetweenIn(from: int, to: int, zone: string) -> int as goDaysBetweenIn
+  fn FormatLayout(ms: int, layout: string, zone: string) -> string as goFormatLayout
+  fn ParseLayout(text: string, layout: string, zone: string) -> Result<int, GoError> as goParseLayout
+  fn ParseDuration(s: string) -> Result<int, GoError> as goParseDuration
+  fn FormatDuration(ms: int) -> string as goFormatDuration
+}
+
+// RFC 3339 with milliseconds, in UTC: "2026-10-25T10:00:00.000Z".
+pub fn format(t: int) -> string {
+  return goFormat(t)
+}
+
+// The day alone: "2026-10-25".
+pub fn formatDate(t: int) -> string {
+  return goFormatDate(t)
+}
+
+// Reads RFC 3339 ("2026-10-25T10:00:00Z", with a fraction of a second or an offset like
+// +02:00 if given) or a date alone ("2026-10-25", midnight UTC). The error says what's wrong.
+pub fn parse(text: string) -> Result<int, string> {
+  return goParse(text).mapErr((e) => e.message())
+}
+
+// The calendar parts of `t`.
+pub fn parts(t: int) -> Parts {
+  return partsIn(t, utcZone())
+}
+
+// The time at those parts, in UTC: `time.utc(2028, 2, 29, 0, 0, 0)`. An `Err` if they name
+// no time (February 30th, hour 24).
+pub fn utc(year: int, month: int, day: int, hour: int, minute: int, second: int) -> Result<int, string> {
+  if !goValid(year, month, day, hour, minute, second) {
+    return Err("${year}-${two(month)}-${two(day)} ${two(hour)}:${two(minute)}:${two(second)} is not a time")
+  }
+  return Ok(goDate(year, month, day, hour, minute, second))
+}
+
+fn two(n: int) -> string {
+  return "${n}".padStart(2, "0")
+}
+
+// `n` days later (earlier if negative), at the same time of day.
+pub fn addDays(t: int, n: int) -> int {
+  return t + days(n)
+}
+
+// `n` months later (earlier if negative), at the same time of day. A day past the new month's
+// end becomes its last day: Jan 31 plus one month is Feb 28, or 29 in a leap year.
+pub fn addMonths(t: int, n: int) -> int {
+  return goAddMonths(t, n)
+}
+
+// `n` years later; Feb 29 becomes Feb 28 in a year without one.
+pub fn addYears(t: int, n: int) -> int {
+  return goAddMonths(t, n * 12)
+}
+
+// Midnight UTC of `t`'s day.
+pub fn startOfDay(t: int) -> int {
+  let r = t % days(1)
+  // `%` keeps the sign of `t`; before 1970 the day began earlier, not later.
+  return if r < 0 { t - r - days(1) } else { t - r }
+}
+
+// Whole days from `from` to `to`, counting midnights crossed: negative if `to` is earlier.
+pub fn daysBetween(from: int, to: int) -> int {
+  return (startOfDay(to) - startOfDay(from)) / days(1)
+}
+
+// Durations in milliseconds, to add to a time or pass to `clock.sleep`.
+pub fn seconds(n: int) -> int {
+  return n * 1000
+}
+
+pub fn minutes(n: int) -> int {
+  return n * 60_000
+}
+
+pub fn hours(n: int) -> int {
+  return n * 3_600_000
+}
+
+pub fn days(n: int) -> int {
+  return n * 86_400_000
+}
+
+// A length of time where it is read or shown as one: `flags.parse` reads a `Duration` field as
+// Go writes one, `-timeout 1m30s`, and `"${d}"` writes it so. `d.ms` is what `clock.sleep`
+// takes: `time.Duration { ms: time.seconds(10) }`.
+pub struct Duration {
+  pub ms: int
+}
+
+impl Show for Duration {
+  fn toString(self) -> string {
+    return goFormatDuration(self.ms)
+  }
+}
+
+// Reads Go's form: "1m30s", "500ms", "1.5h", "-2s" (units ns, us, ms, s, m, h). A part of a
+// millisecond is dropped.
+pub fn parseDuration(text: string) -> Result<Duration, string> {
+  return match goParseDuration(text) {
+    Ok(ms) => Ok(Duration { ms }),
+    Err(e) => Err(e.message()),
+  }
+}
+
+// A time zone from the zone database, built into every program: `time.zone("Europe/Oslo")`.
+// Only `time.zone` and `time.utcZone` make one; compare it, keep it, pass it around.
+pub struct Zone {
+  name: string
+}
+
+// The zone with that database name ("Europe/Oslo", "America/New_York", "UTC"), or none. The
+// machine's own zone isn't one of them: `env.zone()` gives it, as it depends on where the
+// program runs.
+pub fn zone(name: string) -> Zone? {
+  return if goZoneOk(name) { Zone { name } } else { none }
+}
+
+// `env.zone()`, and in tests `env.setZone(z)`: the checker sends those calls here, as they give
+// and take a Zone. The bodies are Go, in the emitter.
+fn envZone() -> Zone uses env {
+  return utcZone()
+}
+
+fn setEnvZone(z: Zone) uses env {
+}
+
+// UTC as a Zone, for code that takes one: `time.zone(name) ?? time.utcZone()`.
+pub fn utcZone() -> Zone {
+  return Zone { name: "UTC" }
+}
+
+// The name `z` was made from.
+pub fn zoneName(z: Zone) -> string {
+  return z.name
+}
+
+// The calendar parts of `t` on `z`'s clocks.
+pub fn partsIn(t: int, z: Zone) -> Parts {
+  let p = goPartsIn(t, z.name).split(",").map((n) => n.toInt() ?? 0)
+  return Parts {
+    year: p[0] ?? 0,
+    month: p[1] ?? 0,
+    day: p[2] ?? 0,
+    hour: p[3] ?? 0,
+    minute: p[4] ?? 0,
+    second: p[5] ?? 0,
+    millisecond: p[6] ?? 0,
+    weekday: p[7] ?? 0,
+    yearDay: p[8] ?? 0,
+  }
+}
+
+// How far `z`'s clocks are ahead of UTC at `t`, in milliseconds (negative west of Greenwich).
+pub fn offsetIn(t: int, z: Zone) -> int {
+  return goOffsetIn(t, z.name)
+}
+
+// RFC 3339 with milliseconds and `z`'s offset: "2026-10-28T11:00:00.000+01:00".
+pub fn formatIn(t: int, z: Zone) -> string {
+  return goFormatIn(t, z.name)
+}
+
+// The day alone on `z`'s clocks: "2026-10-28".
+pub fn formatDateIn(t: int, z: Zone) -> string {
+  return goFormatDateIn(t, z.name)
+}
+
+// The time at those parts on `z`'s clocks: `time.inZone(oslo, 2026, 10, 28, 9, 0, 0)`. An `Err`
+// if they name no date or time of day, such as February 30. A time the clocks skip when they go
+// forward is moved on by the gap, as Go does (02:30 on that night in Oslo is 03:30); `validIn`
+// tells. A time that comes twice, when they go back, is the first.
+pub fn inZone(z: Zone, year: int, month: int, day: int, hour: int, minute: int, second: int) -> Result<int, string> {
+  if !goValid(year, month, day, hour, minute, second) {
+    return Err("${year}-${two(month)}-${two(day)} ${two(hour)}:${two(minute)}:${two(second)} is not a time in ${z.name}")
+  }
+  return Ok(goDateIn(z.name, year, month, day, hour, minute, second))
+}
+
+// Whether the parts name a time on `z`'s clocks: false for February 30, and for a time the
+// clocks skip when they go forward, which `inZone` moves on.
+pub fn validIn(z: Zone, year: int, month: int, day: int, hour: int, minute: int, second: int) -> bool {
+  return goValidIn(z.name, year, month, day, hour, minute, second)
+}
+
+// The start of `t`'s day on `z`'s clocks: a local day is `startOfDayIn(t, z)` up to
+// `startOfDayIn(addDaysIn(t, 1, z), z)`, 23 or 25 hours long when the clocks change.
+pub fn startOfDayIn(t: int, z: Zone) -> int {
+  return goStartOfDayIn(t, z.name)
+}
+
+// `n` days later (earlier if negative) at the same time on `z`'s clocks.
+pub fn addDaysIn(t: int, n: int, z: Zone) -> int {
+  return goAddDaysIn(t, n, z.name)
+}
+
+// Whole days from `from` to `to` on `z`'s clocks, counting midnights crossed.
+pub fn daysBetweenIn(from: int, to: int, z: Zone) -> int {
+  return goDaysBetweenIn(from, to, z.name)
+}
+
+// Reads `text` by `layout`, Go's reference time Mon Jan 2 15:04:05 MST 2006 written the way the
+// text is:`time.parseLayout("Tue, 27 Oct 2026 09:00:00 EST", "Mon, 02 Jan 2006 15:04:05 MST")`.
+// A time with no zone or offset is UTC. Zone abbreviations come from a fixed table of the
+// common ones (CST is US Central, IST is India); one not in it is read at offset 0, as Go does,
+// so the time is off by that zone's real offset.
+pub fn parseLayout(text: string, layout: string) -> Result<int, string> {
+  return goParseLayout(text, layout, "UTC").mapErr((e) => e.message())
+}
+
+// `parseLayout`, but a time with no zone or offset is on `z`'s clocks.
+pub fn parseLayoutIn(text: string, layout: string, z: Zone) -> Result<int, string> {
+  return goParseLayout(text, layout, z.name).mapErr((e) => e.message())
+}
+
+// `t` on `z`'s clocks, written in Go's layout language: `time.formatLayout(t, "Jan 2, 15:04 MST",
+// oslo)` is "Oct 28, 11:00 CET".
+pub fn formatLayout(t: int, layout: string, z: Zone) -> string {
+  return goFormatLayout(t, layout, z.name)
+}

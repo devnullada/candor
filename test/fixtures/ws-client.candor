@@ -1,0 +1,100 @@
+module wsclient
+
+import "bytes"
+import "http"
+
+// A WebSocket client, and the server it talks to: `SERVE=1` serves, else it connects to URL.
+
+fn echo(ws: http.WebSocket) {
+  while true {
+    match ws.receive() {
+      none => return,
+      text => ws.send("echo: ${text}"),
+    }
+  }
+}
+
+// Binary messages come back doubled; a text one gets a reply, a binary copy, and "last".
+fn mirror(ws: http.WebSocket) {
+  while true {
+    match ws.receiveMessage() {
+      none => return,
+      .Binary { data } => ws.sendBytes(data.concat(data)),
+      .Text { text } => {
+        ws.send("got ${text}")
+        ws.sendBytes(text.toBytes())
+        ws.send("last")
+      },
+    }
+  }
+}
+
+fn handle(req: http.Request) -> http.Response {
+  if req.path == "/echo" {
+    return http.upgrade(req, echo)
+  }
+  if req.path == "/bytes" {
+    return http.upgrade(req, mirror)
+  }
+  if req.path == "/hello" {
+    let names = http.headerAll(req, "x-name").join(" and ")
+    return http.upgrade(req, (ws) => {
+      ws.send("hello ${names}")
+    })
+  }
+  return http.textResponse(404, "no WebSocket at ${req.path}")
+}
+
+// Says hello to the server at `base` as two names, then sends each word to its echo.
+fn talk(base: string, words: List<string>) -> Result<void, http.HttpError> uses http, io {
+  let req = http.addRequestHeader(http.request("GET", "${base}/hello"), "X-Name", "ada")
+  http.connectWith(http.addRequestHeader(req, "x-name", "bo"), (ws) => {
+    io.println(ws.receive() ?? "closed")
+    io.println(ws.receive() ?? "closed")
+  })?
+  return http.connect("${base}/echo", (ws) => {
+    for w in words {
+      ws.send(w)
+      io.println(ws.receive() ?? "closed")
+    }
+  })
+}
+
+// A binary message and a text one; `receive` then skips the binary copy.
+fn binary(base: string) -> Result<void, http.HttpError> uses http, io {
+  return http.connect("${base}/bytes", (ws) => {
+    ws.sendBytes(bytes.fromList([1, 2, 255]))
+    ws.send("hi")
+    for _ in 0..2 {
+      match ws.receiveMessage() {
+        none => io.println("closed"),
+        .Text { text } => io.println("text ${text}"),
+        .Binary { data } => io.println("binary ${data.toHex()}"),
+      }
+    }
+    io.println(ws.receive() ?? "closed")
+  })
+}
+
+fn main() uses io, http, tasks, env {
+  let port = env.get("PORT") ?? "18500"
+  if env.get("SERVE") != none {
+    match http.serve("127.0.0.1:${port}", handle) {
+      Ok() => {},
+      Err(e) => io.println("serve: ${e}"),
+    }
+    return
+  }
+  match talk("ws://127.0.0.1:${port}", ["one", "two"]) {
+    Ok() => {},
+    Err(e) => io.println("failed: ${e}"),
+  }
+  match binary("ws://127.0.0.1:${port}") {
+    Ok() => {},
+    Err(e) => io.println("failed: ${e}"),
+  }
+  match http.connect("ws://127.0.0.1:${port}/nope", (ws) => {}) {
+    Ok() => io.println("connected to /nope?"),
+    Err(e) => io.println("failed: ${e}"),
+  }
+}

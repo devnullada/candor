@@ -1,0 +1,8 @@
+7 + 3 * 2 = 13
+(7 + 3) * 2 = 20
+7 / 3 = 2, remainder 1
+-7 / 3 = -2, remainder -1
+square(-4) = 16
+7 > 3 && 3 >= 3: true
+"abc" < "abd": true
+total = 7003009

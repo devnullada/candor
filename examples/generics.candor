@@ -1,0 +1,70 @@
+module generics
+
+// Generic types and functions. Type arguments come from the arguments of a call, or the fields
+// of a literal; when nothing there says, they are written: `Tree<int>.Leaf`.
+
+struct Page<T> {
+  items: List<T>
+  next: string?
+}
+
+enum Tree<T> {
+  Leaf
+  Node { left: Tree<T>, value: T, right: Tree<T> }
+}
+
+fn first<T>(xs: List<T>) -> T? {
+  return xs[0]
+}
+
+fn paginate<T>(xs: List<T>, size: int) -> List<Page<T>> {
+  let mut pages: List<Page<T>> = []
+  let mut current: List<T> = []
+  for x in xs {
+    current.push(x)
+    if current.length() == size {
+      pages.push(Page { items: current, next: "page ${pages.length() + 2}" })
+      current = []
+    }
+  }
+  pages.push(Page { items: current, next: none })
+  return pages
+}
+
+// `T: Ord`: values of `T` can be compared with `<`.
+fn insert<T: Ord>(t: Tree<T>, v: T) -> Tree<T> {
+  return match t {
+    Tree.Leaf => Tree.Node { left: Tree<T>.Leaf, value: v, right: Tree<T>.Leaf }
+    Tree.Node { left, value, right } => if v < value {
+      Tree.Node { left: insert(left, v), value, right }
+    } else {
+      Tree.Node { left, value, right: insert(right, v) }
+    }
+  }
+}
+
+fn inOrder<T>(t: Tree<T>) -> List<T> {
+  return match t {
+    Tree.Leaf => []
+    Tree.Node { left, value, right } => inOrder(left).concat([value]).concat(inOrder(right))
+  }
+}
+
+// `uses f`: `each` does whatever `f` does, so calling it with a lambda that prints needs `io`.
+fn each<T>(xs: List<T>, f: fn(T)) uses f {
+  for x in xs {
+    f(x)
+  }
+}
+
+fn main() uses io {
+  let pages = paginate(["a", "b", "c", "d", "e"], 2)
+  each(pages, (p) => io.println("${p.items.join(",")} -> ${p.next ?? "end"}"))
+
+  let mut words = Tree<string>.Leaf
+  for w in ["pear", "fig", "apple", "kiwi"] {
+    words = insert(words, w)
+  }
+  io.println(inOrder(words).join(" "))
+  io.println("first: ${first(inOrder(words)) ?? "none"}")
+}

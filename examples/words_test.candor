@@ -1,0 +1,23 @@
+module words
+
+test "counts each word, in the order first seen" {
+  let c = count("b a b")
+  assert c == ["b": 2, "a": 1]
+  assert c.keys() == ["b", "a"]
+  assert c["z"] == none
+}
+
+test "maps are values" {
+  let a = ["x": 1]
+  let mut b = a
+  b["y"] = 2
+  assert a.length() == 1 && b.length() == 2
+  assert b.remove("x") == 1
+  assert !b.has("x") && a.has("x")
+}
+
+// Keys can be anything with `==`, lists too.
+test "== ignores order" {
+  assert ["a": 1, "b": 2] == ["b": 2, "a": 1]
+  assert [[1, 2]: "pair"][[1, 2]] == "pair"
+}

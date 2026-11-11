@@ -1,0 +1,12 @@
+{
+  "name": "candor",
+  "description": "Candor, a backend language for AI coders: the plugin that teaches an agent to write it.",
+  "owner": { "name": "The Candor Authors" },
+  "plugins": [
+    {
+      "name": "candor",
+      "source": "./plugins/candor",
+      "description": "Write, port and test code in Candor: runs `candor guide` and `candor check` the right way."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+module hashing
+
+// SHA-256 and base64, from Go's standard library through a little Go of our own.
+pub extern "./native" {
+  fn Sha256Hex(s: string) -> string as sha256Hex
+  fn Base64(s: string) -> string as base64
+}
+
+// 64 lowercase hex digits: the form of a blob's id.
+pub fn isId(s: string) -> bool {
+  return s.length() == 64 && s.chars().all((c) => c.isDigit() || ('a' <= c && c <= 'f'))
+}

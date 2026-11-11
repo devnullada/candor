@@ -1,0 +1,13 @@
+module strconv
+
+// A slice of Go's strconv. A Go function that returns `(T, error)` gives a `Result<T, GoError>`.
+// Go's type checker matches these signatures against Go's when the program builds; whether a
+// function is pure is up to whoever writes the binding.
+pub extern "strconv" {
+  fn Atoi(s: string) -> Result<int, GoError> as atoi
+  fn ParseBool(s: string) -> Result<bool, GoError> as parseBool
+  fn FormatInt(i: int, base: int) -> string as formatInt
+  fn Quote(s: string) -> string as quote
+  let ErrRange: GoError as errRange
+  let ErrSyntax: GoError as errSyntax
+}

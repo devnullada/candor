@@ -1,0 +1,98 @@
+module lists
+
+// Lists, lambdas and loops. Lists are values: changing one in a `let mut` never changes a copy.
+
+struct Order {
+  id: int
+  customer: string
+  total: int
+  paid: bool
+}
+
+fn orders() -> List<Order> {
+  return [
+    Order { id: 1, customer: "Ada", total: 120, paid: true },
+    Order { id: 2, customer: "Grace", total: 80, paid: false },
+    Order { id: 3, customer: "Ada", total: 45, paid: true },
+    Order { id: 4, customer: "Linus", total: 300, paid: false },
+  ]
+}
+
+fn sum(xs: List<int>) -> int {
+  let mut total = 0
+  for x in xs {
+    total += x
+  }
+  return total
+}
+
+// A callback's effects are part of its type: `each` may print because `f` may.
+fn each(xs: List<Order>, f: fn(Order) uses io) uses io {
+  for o in xs {
+    f(o)
+  }
+}
+
+fn firstUnpaidOver(xs: List<Order>, limit: int) -> Order? {
+  for o in xs {
+    if !o.paid && o.total > limit {
+      return o
+    }
+  }
+  return none
+}
+
+fn countdown(from: int) -> List<int> {
+  let mut out: List<int> = []
+  let mut n = from
+  while n > 0 {
+    out.push(n)
+    n -= 1
+  }
+  return out
+}
+
+fn main() uses io {
+  let all = orders()
+  let unpaid = all.filter((o) => !o.paid)
+  io.println("unpaid: ${unpaid.map((o) => o.id.toString()).join(", ")}")
+  io.println("unpaid total: ${sum(unpaid.map((o) => o.total))}")
+
+  let customers = all.map((o) => o.customer)
+  io.println("Ada ordered: ${customers.contains("Ada")}")
+
+  each(all, (o) => io.println("#${o.id} ${o.customer}"))
+
+  let big = firstUnpaidOver(all, 100)
+  io.println("first big unpaid: " + match big {
+    none => "none"
+    o => o.customer
+  })
+
+  // Value semantics: `copy` starts equal to `base` and changes alone.
+  let base = [1, 2, 3]
+  let mut copy = base
+  copy.push(4)
+  io.println("base: ${base.length()}, copy: ${copy.length()}")
+  io.println("equal: ${base == [1, 2, 3]}")
+
+  let mut evens: List<int> = []
+  for i in 0..10 {
+    if i % 2 == 1 {
+      continue
+    }
+    if i > 6 {
+      break
+    }
+    evens.push(i)
+  }
+  io.println("evens: ${evens.map((i) => i.toString()).join(" ")}")
+  io.println("countdown: ${countdown(3).map((i) => i.toString()).join(" ")}")
+
+  let third = all[2]
+  io.println("third: " + match third {
+    none => "missing"
+    o => o.customer
+  })
+  io.println("tenth: ${(all[9] ?? Order { id: 0, customer: "nobody", total: 0, paid: false }).customer}")
+}

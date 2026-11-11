@@ -1,0 +1,227 @@
+module todos
+
+import "http"
+import "json"
+import "sql"
+
+// A to-do list served as JSON over HTTP, kept in SQLite.
+//
+//   GET    /todos        every todo, oldest first
+//   POST   /todos        {"title": "..."} adds one: 201 and the todo
+//   GET    /todos/{id}   one todo, or 404
+//   PATCH  /todos/{id}   {"done": true} or {"title": "..."}: the todo as it is now
+//   DELETE /todos/{id}   204, or 404
+//
+// `handle` is the whole service, and takes plain values: tests call it, and its SQL runs
+// against SQLite in memory, fresh for every test. `main` serves it when $PORT is set (PORT=8080 candor run examples/todos.candor), a task per
+// request, and otherwise replays a few requests, which is what `bun test` checks.
+
+struct Todo {
+  id: int
+  title: string
+  done: bool
+}
+impl Json for Todo
+impl Row for Todo
+
+// A POST body.
+struct NewTodo {
+  title: string
+}
+impl Json for NewTodo
+
+// What a change to a todo may set, and a PATCH body; none leaves it as it is.
+struct Change {
+  title: string?
+  done: bool?
+}
+impl Json for Change
+
+// The body of every error.
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+// The store. Optional parameters are NULL, so `coalesce` keeps what a change leaves out.
+
+fn migrate() -> Result<void, sql.Error> uses sql {
+  sql.exec("""
+    CREATE TABLE IF NOT EXISTS todos (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0
+    )
+    """)?
+  return Ok()
+}
+
+// Every todo, oldest first.
+fn all() -> Result<List<Todo>, sql.Error> uses sql {
+  return sql.query<Todo>("SELECT id, title, done FROM todos ORDER BY id")
+}
+
+fn get(id: int) -> Result<Todo?, sql.Error> uses sql {
+  return Ok(sql.query<Todo>("SELECT id, title, done FROM todos WHERE id = ${id}")?.first())
+}
+
+fn add(title: string) -> Result<Todo, sql.Error> uses sql {
+  let id = sql.insert("INSERT INTO todos (title) VALUES (${title})")?
+  return Ok(Todo { id, title, done: false })
+}
+
+// The todo after the change, or none if there is no such todo.
+fn change(id: int, c: Change) -> Result<Todo?, sql.Error> uses sql {
+  // One transaction, so the todo read back is the one this changed.
+  return sql.transaction(() => {
+    sql.exec("UPDATE todos SET title = coalesce(${c.title}, title), done = coalesce(${c.done}, done) WHERE id = ${id}")?
+    return get(id)
+  }, (e) => e)
+}
+
+// Whether there was such a todo.
+fn remove(id: int) -> Result<bool, sql.Error> uses sql {
+  return Ok(sql.exec("DELETE FROM todos WHERE id = ${id}")? > 0)
+}
+
+// The service: every request gets an answer, errors included.
+fn handle(req: http.Request) -> http.Response uses sql {
+  return match route(req) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+// Errors are answers too, so `?` can give one back early.
+// Paths are matched without their method, so a known path with the wrong method is a 405.
+fn route(req: http.Request) -> Result<http.Response, http.Response> uses sql {
+  if http.route(req, "/todos") != none {
+    return match req.method {
+      "GET" => Ok(http.jsonResponse(200, stored(all())?)),
+      "POST" => {
+        let title = readBody<NewTodo>(req.body)?.title.trim()
+        if title.isEmpty() {
+          return Err(problem(400, "`title` must not be blank"))
+        }
+        let t = stored(add(title))?
+        Ok(http.jsonResponse(201, t))
+      },
+      _ => Err(problem(405, "/todos takes GET and POST")),
+    }
+  }
+  let params = http.route(req, "/todos/{id}")
+  if params == none {
+    return Err(problem(404, "no route ${req.method} ${req.path}"))
+  }
+  let given = params["id"] ?? ""
+  let id = match given.toInt() {
+    none => return Err(problem(404, "no todo `${given}`: ids are ints")),
+    n => n,
+  }
+  return match req.method {
+    "GET" => {
+      let t = found(id, stored(get(id))?)?
+      Ok(http.jsonResponse(200, t))
+    },
+    "PATCH" => {
+      let c = checkChange(readBody<Change>(req.body)?)?
+      let t = found(id, stored(change(id, c))?)?
+      Ok(http.jsonResponse(200, t))
+    },
+    "DELETE" => {
+      if !stored(remove(id))? {
+        return Err(problem(404, "no todo ${id}"))
+      }
+      Ok(http.emptyResponse(204))
+    },
+    _ => Err(problem(405, "/todos/{id} takes GET, PATCH and DELETE")),
+  }
+}
+
+// A PATCH that changes nothing is an error: `{}` is most likely a mistake.
+fn checkChange(c: Change) -> Result<Change, http.Response> {
+  if c.title == none && c.done == none {
+    return Err(problem(400, "nothing to change: a todo has `title` and `done`"))
+  }
+  return match c.title {
+    none => Ok(c),
+    title => if title.trim().isEmpty() {
+      Err(problem(400, "`title` must not be blank"))
+    } else {
+      Ok(Change { ...c, title: title.trim() })
+    },
+  }
+}
+
+// Strict: a field the service doesn't know, like `{"don": true}`, is a 400 naming it.
+fn readBody<T: Json>(text: string) -> Result<T, http.Response> {
+  return match json.decodeStrict<T>(text) {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(400, "bad body: ${e}")),
+  }
+}
+
+fn found(id: int, t: Todo?) -> Result<Todo, http.Response> {
+  if t == none {
+    return Err(problem(404, "no todo ${id}"))
+  }
+  return Ok(t)
+}
+
+// A database error is the server's fault: 500, with the message in the body.
+fn stored<T>(r: Result<T, sql.Error>) -> Result<T, http.Response> {
+  return match r {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(500, "the database failed: ${e}")),
+  }
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+fn main() uses io, env, sql, http, tasks {
+  let port = env.get("PORT")
+  let path = if port == none { ":memory:" } else { "todos.db" }
+  match open(path) {
+    Ok() => {},
+    Err(e) => {
+      io.println("can't open ${path}: ${e}")
+      return
+    },
+  }
+  if port == none {
+    let requests = [
+      request("POST", "/todos", """{"title": "wax the board"}"""),
+      request("POST", "/todos", """{"title": "call the vet"}"""),
+      request("PATCH", "/todos/1", """{"done": true}"""),
+      request("GET", "/todos", ""),
+      request("DELETE", "/todos/2", ""),
+      request("GET", "/todos/2", ""),
+      request("POST", "/todos", """{"title": 7}"""),
+      request("PATCH", "/todos/1", """{"don": true}"""),
+      request("PATCH", "/todos/1", "{}"),
+    ]
+    for req in requests {
+      let res = handle(req)
+      let body = if res.body.isEmpty() { "" } else { " ${res.body}" }
+      io.println("${req.method} ${req.path} -> ${res.status}${body}")
+    }
+    return
+  }
+  io.println("serving on :${port}")
+  match http.serve(":${port}", handle) {
+    Ok() => {},
+    Err(message) => io.println("can't serve: ${message}"),
+  }
+}
+
+fn open(path: string) -> Result<void, sql.Error> uses sql {
+  sql.open(path)?
+  return migrate()
+}
+
+// A request without a query or headers, which the service doesn't read.
+fn request(method: string, path: string, body: string) -> http.Request {
+  return http.Request { method, path, query: [:], headers: [:], body }
+}

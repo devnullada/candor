@@ -1,0 +1,16 @@
+module notes
+
+test "same code against memory" {
+  assert save("out/notes", "b.txt", "two\r\nlines") == Ok()
+  assert save("out/notes", "a.txt", "one") == Ok()
+  assert report("out/notes") == Ok("a.txt: 2 lines, b.txt: 3 lines")
+  assert fs.read("out/notes/a.txt") == Ok("one\nend\n")
+  assert fs.list("out") == Ok(["notes"])
+  assert fs.read("out/missing.txt") == Err(fs.FsError.NotFound { path: "out/missing.txt" })
+  assert fs.write("nowhere/x.txt", "") == Err(fs.FsError.NotFound { path: "nowhere/x.txt" })
+  match fs.remove("out/notes") {
+    Ok(_) => assert false,
+    Err(e) => assert "${e}" == "out/notes: directory not empty",
+  }
+  assert fs.list(".") == Ok(["out"])
+}

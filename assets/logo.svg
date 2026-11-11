@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>candor</title>
+  <circle cx="256" cy="256" r="256" fill="#000"/>
+  <path d="M 136 186 A 90 90 0 0 1 226 96 L 286 96 A 90 90 0 0 1 376 186 L 376 200 M 376 312 L 376 326 A 90 90 0 0 1 286 416 L 226 416 A 90 90 0 0 1 136 326" fill="none" stroke="#fff" stroke-width="72"/>
+  <circle cx="136" cy="256" r="42" fill="#34d399"/>
+</svg>

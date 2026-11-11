@@ -1,0 +1,338 @@
+module imap
+
+// Reading a mailbox over IMAP, with `uses imap`. A session logs in, runs, and logs out:
+//
+//   let account = imap.Account { host: "imap.zoho.eu", port: 993, user, password }
+//   let newest = imap.session(account, (s) => {
+//     let inbox = imap.select(s, "INBOX")?
+//     return imap.fetch(s, (inbox.count - 4).max(1), inbox.count)
+//   })?
+//   for m in newest { let parsed = mime.parse(m.source)? ... }
+//
+// `imap.folders(s)` lists the folders with their special use (`.Sent`, ...), so the Sent
+// folder is asked of the server, not guessed. `imap.select(s, folder)` opens one read-only and
+// gives its `uidValidity` and `count`. Then `imap.fetch(s, from, to)` by sequence number (1 is
+// the oldest), or `imap.fetchAbove(s, uid)` for every message with a higher UID: a sync keeps
+// the highest UID it saw, per folder, with the uidValidity it belongs to, and starts over when
+// the uidValidity changes. Fetching marks nothing seen.
+//
+// Over implicit TLS (port 993). `timeoutMs` bounds connecting and then each command; cancelling
+// the task ends the connection.
+//
+// In a test no server answers: `imap.addMessage(folder, raw, date)` puts a message in a folder
+// (INBOX exists; `imap.addFolder` makes others), `imap.setUidValidity` renumbers one,
+// `imap.refuseLogin` makes logins fail, and `imap.openSessions()` says how many are still open.
+
+// Where to log in. `timeoutMs` left out is 60 s.
+pub struct Account {
+  pub host: string
+  pub port: int
+  pub user: string
+  // For Zoho, Gmail and most hosted mail, an app password.
+  pub password: string
+  pub timeoutMs: int?
+}
+
+// A logged-in connection, for the duration of `imap.session`'s function.
+pub struct Session {
+  id: int
+}
+
+// A folder's special use (RFC 6154), as the server marks it.
+pub enum SpecialUse {
+  All
+  Archive
+  Drafts
+  Flagged
+  Junk
+  Sent
+  Trash
+}
+
+impl Show for SpecialUse {
+  fn toString(self) -> string {
+    return match self {
+      .All => "\\All",
+      .Archive => "\\Archive",
+      .Drafts => "\\Drafts",
+      .Flagged => "\\Flagged",
+      .Junk => "\\Junk",
+      .Sent => "\\Sent",
+      .Trash => "\\Trash",
+    }
+  }
+}
+
+pub struct Folder {
+  // The full name, to `select`: `INBOX`, `Sent`, `Archive/2026`.
+  pub name: string
+  // What the server marks it as, if anything.
+  pub specialUse: SpecialUse?
+  // Every attribute as the server sent it: `\HasNoChildren`, `\Noselect`, ...
+  pub attributes: List<string>
+}
+
+// A selected folder.
+pub struct Selected {
+  // UIDs mean something only within one uidValidity: when it changes, start over.
+  pub uidValidity: int
+  // How many messages it holds: the newest has sequence number `count`.
+  pub count: int
+  // The UID the next message will get.
+  pub uidNext: int
+}
+
+// A fetched message.
+pub struct Fetched {
+  pub uid: int
+  // When the server received it, ms since 1970.
+  pub date: int
+  // The whole message, for `mime.parse`.
+  pub source: Bytes
+}
+
+// Why IMAP failed.
+pub enum ImapError {
+  // No connection: a bad host or port, TLS refused, the connection broken.
+  Connect { message: string }
+  // The server refused the user and password.
+  Login { message: string }
+  // No answer within `timeoutMs`.
+  Timeout
+  // No such folder, or it can't be selected.
+  NoFolder { name: string, message: string }
+  // Anything else the server refused.
+  Failed { message: string }
+}
+
+impl Show for ImapError {
+  fn toString(self) -> string {
+    return match self {
+      .Connect { message } => "can't connect: ${message}",
+      .Login { message } => "login refused: ${message}",
+      .Timeout => "timed out",
+      .NoFolder { name, message } => "no folder ${name}: ${message}",
+      .Failed { message } => message,
+    }
+  }
+}
+
+// A folder in the fake.
+struct FakeFolder {
+  specialUse: SpecialUse?
+  uidValidity: int
+  uidNext: int
+  messages: List<Fetched>
+}
+
+// Mail: having `imap` is the permission to read mailboxes.
+effect imap {
+  // The IMAP client imapgo is written on (the package, so `go get` brings what it imports).
+  extern "github.com/emersion/go-imap/client@v1.2.1" {}
+
+  extern "./imapgo" {
+    fn Open(ctx, host: string, port: int, user: string, password: string, timeoutMs: int) -> Result<int, GoError> as goOpen
+    fn Folders(ctx, id: int) -> Result<List<string>, GoError> as goFolders
+    fn Select(ctx, id: int, folder: string) -> Result<List<string>, GoError> as goSelect
+    fn Fetch(ctx, id: int, from: int, to: int, byUid: bool) -> Result<List<string>, GoError> as goFetch
+    fn Close(id: int) as goClose
+  }
+
+  // Connects and logs in. The step under `imap.session`, which also logs out.
+  pub fn open(account: Account) -> Result<Session, ImapError> {
+    let id = goOpen(account.host, account.port, account.user, account.password, account.timeoutMs ?? 60_000).mapErr((e) => imapError("", e))?
+    return Ok(Session { id })
+  }
+
+  // Every folder, with its special use.
+  pub fn folders(s: Session) -> Result<List<Folder>, ImapError> {
+    let flat = goFolders(s.id).mapErr((e) => imapError("", e))?
+    let mut out: List<Folder> = []
+    for i in 0..(flat.length() / 3) {
+      let attributes = (flat[3 * i + 2] ?? "").split(" ").filter((a) => a != "")
+      out.push(Folder { name: flat[3 * i] ?? "", specialUse: specialUse(attributes), attributes })
+    }
+    return Ok(out)
+  }
+
+  // Opens `folder` read-only for `fetch` and `fetchAbove`.
+  pub fn select(s: Session, folder: string) -> Result<Selected, ImapError> {
+    let n = goSelect(s.id, folder).mapErr((e) => imapError(folder, e))?
+    let num = (i: int) => (n[i] ?? "").toInt() ?? 0
+    return Ok(Selected { uidValidity: num(0), count: num(1), uidNext: num(2) })
+  }
+
+  // The selected folder's messages with sequence numbers `from` to `to`, oldest first. 1 is
+  // the oldest message, `count` the newest.
+  pub fn fetch(s: Session, from: int, to: int) -> Result<List<Fetched>, ImapError> {
+    if from < 1 || to < from {
+      return Ok([])
+    }
+    return fetched(goFetch(s.id, from, to, false).mapErr((e) => imapError("", e))?, 0)
+  }
+
+  // Every message in the selected folder with a UID above `uid`, oldest first.
+  pub fn fetchAbove(s: Session, uid: int) -> Result<List<Fetched>, ImapError> {
+    // `uid+1:*` gives the newest message even when its UID is lower, so it's filtered.
+    return fetched(goFetch(s.id, uid + 1, 0, true).mapErr((e) => imapError("", e))?, uid)
+  }
+
+  // Logs out. `imap.session` does it for you.
+  pub fn close(s: Session) {
+    goClose(s.id)
+  }
+}
+
+// Plays a mailbox the test fills; nothing goes over the network.
+fake imap {
+  let mut boxes: Map<string, FakeFolder> = ["INBOX": FakeFolder { uidValidity: 1, uidNext: 1, messages: [] }]
+  let mut sessions: Map<int, string> = [:]
+  let mut opened = 0
+  let mut refusal: string? = none
+
+  fn open(account: Account) -> Result<Session, ImapError> {
+    match refusal {
+      none => {},
+      message => return Err(ImapError.Login { message }),
+    }
+    opened += 1
+    sessions[opened] = ""
+    return Ok(Session { id: opened })
+  }
+
+  fn folders(s: Session) -> Result<List<Folder>, ImapError> {
+    if sessions[s.id] == none {
+      return Err(ImapError.Failed { message: "the session has ended" })
+    }
+    let mut out: List<Folder> = []
+    for (name, box) in boxes {
+      out.push(Folder { name, specialUse: box.specialUse, attributes: box.specialUse.map((u) => ["${u}"]) ?? [] })
+    }
+    return Ok(out)
+  }
+
+  fn select(s: Session, folder: string) -> Result<Selected, ImapError> {
+    if sessions[s.id] == none {
+      return Err(ImapError.Failed { message: "the session has ended" })
+    }
+    return match boxes[folder] {
+      none => Err(ImapError.NoFolder { name: folder, message: "no such folder" }),
+      box => {
+        sessions[s.id] = folder
+        Ok(Selected { uidValidity: box.uidValidity, count: box.messages.length(), uidNext: box.uidNext })
+      },
+    }
+  }
+
+  fn fetch(s: Session, from: int, to: int) -> Result<List<Fetched>, ImapError> {
+    let box = selectedBox(boxes, sessions, s)?
+    if from < 1 || to < from {
+      return Ok([])
+    }
+    return Ok(box.messages.slice(from - 1, to.min(box.messages.length())))
+  }
+
+  fn fetchAbove(s: Session, uid: int) -> Result<List<Fetched>, ImapError> {
+    let box = selectedBox(boxes, sessions, s)?
+    return Ok(box.messages.filter((m) => m.uid > uid))
+  }
+
+  fn close(s: Session) {
+    sessions.remove(s.id)
+  }
+
+  // A folder named `name`, empty, marked `use` if given.
+  fn addFolder(name: string, use: SpecialUse?) {
+    boxes[name] = FakeFolder { specialUse: use, uidValidity: 1, uidNext: 1, messages: [] }
+  }
+
+  // Puts the message `raw` in `folder` (made if missing), received at `date`: its UID, one
+  // more than the last.
+  fn addMessage(folder: string, raw: Bytes, date: int) -> int {
+    let box = boxes[folder] ?? FakeFolder { uidValidity: 1, uidNext: 1, messages: [] }
+    let uid = box.uidNext
+    boxes[folder] = FakeFolder { ...box, uidNext: uid + 1, messages: box.messages.concat([Fetched { uid, date, source: raw }]) }
+    return uid
+  }
+
+  // `folder` gets uidValidity `value`, as when a server rebuilds a mailbox; its messages and
+  // UIDs stay.
+  fn setUidValidity(folder: string, value: int) {
+    match boxes[folder] {
+      none => {},
+      box => boxes[folder] = FakeFolder { ...box, uidValidity: value },
+    }
+  }
+
+  // Logins fail with `message` from now on.
+  fn refuseLogin(message: string) {
+    refusal = message
+  }
+
+  // Sessions opened and not yet closed.
+  fn openSessions() -> int {
+    return sessions.length()
+  }
+}
+
+// Logs in to `account`, runs `work` with the session, and logs out, whether `work` returns,
+// fails or crashes. `work`'s Err comes back as it is.
+pub fn session<A>(account: Account, work: fn(Session) -> Result<A, ImapError>) -> Result<A, ImapError> uses imap, work {
+  let s = imap.open(account)?
+  defer {
+    imap.close(s)
+  }
+  return work(s)
+}
+
+// The fake's selected folder for `s`.
+fn selectedBox(boxes: Map<string, FakeFolder>, open: Map<int, string>, s: Session) -> Result<FakeFolder, ImapError> {
+  return match open[s.id] {
+    none => Err(ImapError.Failed { message: "the session has ended" }),
+    "" => Err(ImapError.Failed { message: "no folder is selected: call imap.select first" }),
+    name => Ok(boxes[name] ?? FakeFolder { uidValidity: 1, uidNext: 1, messages: [] }),
+  }
+}
+
+fn specialUse(attributes: List<string>) -> SpecialUse? {
+  for a in attributes {
+    match a.toLowerCase() {
+      "\\all" => return .All,
+      "\\archive" => return .Archive,
+      "\\drafts" => return .Drafts,
+      "\\flagged" => return .Flagged,
+      "\\junk" => return .Junk,
+      "\\sent" => return .Sent,
+      "\\trash" => return .Trash,
+      _ => {},
+    }
+  }
+  return none
+}
+
+// The runtime's uid, date, source triples, those with a UID above `above`.
+fn fetched(flat: List<string>, above: int) -> Result<List<Fetched>, ImapError> {
+  let mut out: List<Fetched> = []
+  for i in 0..(flat.length() / 3) {
+    let uid = (flat[3 * i] ?? "").toInt() ?? 0
+    if uid > above {
+      out.push(Fetched { uid, date: (flat[3 * i + 1] ?? "").toInt() ?? 0, source: (flat[3 * i + 2] ?? "").toBytes() })
+    }
+  }
+  return Ok(out)
+}
+
+extern "./imapgo" {
+  fn Kind(err: GoError) -> int as kind
+}
+
+// The runtime's failure as an ImapError; `folder` for a select.
+fn imapError(folder: string, e: GoError) -> ImapError {
+  return match kind(e) {
+    0 => ImapError.Connect { message: e.message() },
+    1 => ImapError.Login { message: e.message() },
+    2 => ImapError.Timeout,
+    3 => ImapError.NoFolder { name: folder, message: e.message() },
+    _ => ImapError.Failed { message: e.message() },
+  }
+}

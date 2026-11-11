@@ -1,0 +1,186 @@
+module blobs
+
+// The reference for trial app `blobs`: text stored by its SHA-256, with tags, in SQLite. The
+// HTTP side; `store.candor` has the database, `hashing.candor` the Go binding.
+
+import "http"
+import "json"
+import "sql"
+import "store"
+import "hashing"
+
+struct Stored {
+  id: string
+  size: int
+  created: bool
+}
+impl Json for Stored
+
+struct Meta {
+  id: string
+  size: int
+  tags: List<string>
+}
+impl Json for Meta
+
+struct Blobs {
+  blobs: List<store.Blob>
+}
+impl Json for Blobs
+
+struct Tags {
+  tags: List<store.Tag>
+}
+impl Json for Tags
+
+struct TagBody {
+  id: string
+}
+impl Json for TagBody
+
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+fn isTagName(s: string) -> bool {
+  let allowed = "abcdefghijklmnopqrstuvwxyz0123456789-._".chars()
+  return s.length() >= 1 && s.length() <= 64 && s.chars().all((c) => allowed.contains(c))
+}
+
+fn handle(req: http.Request) -> http.Response uses sql {
+  return match route(req) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+fn route(req: http.Request) -> Result<http.Response, http.Response> uses sql {
+  if http.route(req, "/blobs") != none {
+    if req.method == "GET" {
+      return Ok(http.jsonResponse(200, Blobs { blobs: stored(store.blobs())? }))
+    }
+    if req.method != "PUT" {
+      return Err(problem(405, "/blobs takes GET and PUT"))
+    }
+    let id = hashing.sha256Hex(req.body)
+    let created = stored(store.put(id, req.body))?
+    return Ok(http.jsonResponse(if created { 201 } else { 200 }, Stored { id, size: req.body.byteLength(), created }))
+  }
+  let one = http.route(req, "/blobs/{id}")
+  if one != none {
+    let id = blobId(one)?
+    if req.method == "GET" {
+      let body = stored(store.text(id))?
+      if body == none {
+        return Err(problem(404, "no blob ${id}"))
+      }
+      let encoding = req.query["encoding"]
+      if encoding == none {
+        return Ok(http.textResponse(200, body))
+      }
+      if encoding != "base64" {
+        return Err(problem(400, "the only encoding is base64"))
+      }
+      return Ok(http.textResponse(200, hashing.base64(body)))
+    }
+    if req.method != "DELETE" {
+      return Err(problem(405, "/blobs/{id} takes GET and DELETE"))
+    }
+    if stored(store.blob(id))? == none {
+      return Err(problem(404, "no blob ${id}"))
+    }
+    let tags = stored(store.tagsOf(id))?
+    if !tags.isEmpty() {
+      return Err(problem(409, "tagged ${tags.join(", ")}: delete the tags first"))
+    }
+    stored(store.remove(id))?
+    return Ok(http.emptyResponse(204))
+  }
+  let meta = http.route(req, "/blobs/{id}/meta")
+  if meta != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/blobs/{id}/meta takes GET"))
+    }
+    let id = blobId(meta)?
+    let b = stored(store.blob(id))?
+    if b == none {
+      return Err(problem(404, "no blob ${id}"))
+    }
+    return Ok(http.jsonResponse(200, Meta { id, size: b.size, tags: stored(store.tagsOf(id))? }))
+  }
+  if http.route(req, "/tags") != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/tags takes GET"))
+    }
+    return Ok(http.jsonResponse(200, Tags { tags: stored(store.tags())? }))
+  }
+  let named = http.route(req, "/tags/{name}")
+  if named != none {
+    let name = named["name"] ?? ""
+    if req.method == "PUT" {
+      if !isTagName(name) {
+        return Err(problem(400, "a tag name is 1 to 64 of a-z, 0-9, `-`, `.` and `_`"))
+      }
+      let body = match json.decode<TagBody>(req.body) {
+        Ok(b) => b,
+        Err(e) => return Err(problem(400, "bad body: ${e}")),
+      }
+      if !hashing.isId(body.id) {
+        return Err(problem(400, "an id is 64 lowercase hex digits"))
+      }
+      if stored(store.blob(body.id))? == none {
+        return Err(problem(404, "no blob ${body.id}"))
+      }
+      stored(store.setTag(name, body.id))?
+      return Ok(http.jsonResponse(200, store.Tag { name, id: body.id }))
+    }
+    if req.method == "GET" {
+      let t = stored(store.tag(name))?
+      if t == none {
+        return Err(problem(404, "no tag `${name}`"))
+      }
+      return Ok(http.jsonResponse(200, t))
+    }
+    if req.method != "DELETE" {
+      return Err(problem(405, "/tags/{name} takes GET, PUT and DELETE"))
+    }
+    if !stored(store.untag(name))? {
+      return Err(problem(404, "no tag `${name}`"))
+    }
+    return Ok(http.emptyResponse(204))
+  }
+  return Err(problem(404, "no route ${req.method} ${req.path}"))
+}
+
+fn blobId(params: Map<string, string>) -> Result<string, http.Response> {
+  let id = params["id"] ?? ""
+  if !hashing.isId(id) {
+    return Err(problem(400, "an id is 64 lowercase hex digits, not `${id}`"))
+  }
+  return Ok(id)
+}
+
+fn stored<T>(r: Result<T, sql.Error>) -> Result<T, http.Response> {
+  return match r {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(500, "the database failed: ${e}")),
+  }
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+fn main() -> Result<void, string> uses env, sql, http, tasks {
+  let path = env.get("DB") ?? "blobs.db"
+  match store.open(path) {
+    Ok() => {},
+    Err(e) => return Err("can't open ${path}: ${e}"),
+  }
+  return http.serve("127.0.0.1:${env.get("PORT") ?? "8080"}", handle)
+}
+
+fn send(method: string, path: string, body: string) -> http.Response uses sql {
+  return handle(http.Request { method, path, query: [:], headers: [:], body })
+}

@@ -1,0 +1,122 @@
+module traits
+
+// Traits: what a type parameter can do. `Eq` and `Ord` are built in; `Describe` is declared
+// here, and a type has it only through an `impl`.
+
+trait Describe {
+  fn describe(self) -> string
+  // A default body: an impl may leave it out, or write its own.
+  fn label(self) -> string {
+    return "<${self.describe()}>"
+  }
+  // Effects are part of the method: every caller declares `uses io`, whichever impl runs.
+  fn announce(self) uses io {
+    io.println("announcing ${self.label()}")
+  }
+}
+
+struct User {
+  name: string
+  age: int
+}
+
+enum Role {
+  Admin
+  Guest { since: int }
+}
+
+impl Describe for User {
+  fn describe(self) -> string {
+    return "${self.name} (${self.age})"
+  }
+}
+
+impl Describe for Role {
+  fn describe(self) -> string {
+    return match self {
+      Role.Admin => "admin"
+      Role.Guest { since } => "guest since ${since}"
+    }
+  }
+  fn label(self) -> string {
+    return self.describe().toUpperCase()
+  }
+}
+
+impl Describe for int {
+  fn describe(self) -> string {
+    return "#${self}"
+  }
+}
+
+// Users sort by age, then name.
+impl Ord for User {
+  fn compare(self, other: User) -> int {
+    if self.age != other.age {
+      return self.age - other.age
+    }
+    return self.name.compare(other.name)
+  }
+}
+
+fn describeAll<T: Describe>(xs: List<T>) -> string {
+  return xs.map((x) => x.describe()).join(", ")
+}
+
+// `==` on a `T` needs `T: Eq`. Structs, enums, lists and optionals of comparable things have it.
+fn has<T: Eq>(xs: List<T>, x: T) -> bool {
+  for y in xs {
+    if y == x {
+      return true
+    }
+  }
+  return false
+}
+
+// Bounds pass on: `T: Eq` here is what `has` needs.
+fn hasBoth<T: Eq>(xs: List<T>, a: T, b: T) -> bool {
+  return has(xs, a) && xs.contains(b)
+}
+
+// A bound on a type: every `Ranked<X>` has an ordered X.
+struct Ranked<T: Ord> {
+  items: List<T>
+  best: T?
+}
+
+fn rank<T: Ord>(xs: List<T>) -> Ranked<T> {
+  let sorted = xs.sorted()
+  return Ranked { items: sorted, best: sorted.last() }
+}
+
+// `==` on generic values compares them deeply, through the `Eq` of `T`.
+fn sameRanking<T: Ord + Eq>(a: List<T>, b: List<T>) -> bool {
+  return rank(a) == rank(b)
+}
+
+fn largest<T: Ord>(xs: List<T>) -> T? {
+  let mut best = xs[0]?
+  for x in xs {
+    if x > best {
+      best = x
+    }
+  }
+  return best
+}
+
+fn main() uses io {
+  let users = [User { name: "kim", age: 41 }, User { name: "ada", age: 36 }, User { name: "bo", age: 41 }]
+  io.println(describeAll(users.sorted()))
+  io.println(describeAll([Role.Admin, Role.Guest { since: 2019 }]))
+  io.println(describeAll([3, 1, 2].sorted()))
+  let oldest = match largest(users) {
+    none => "nobody"
+    u => u.describe()
+  }
+  io.println("oldest: ${oldest}")
+  io.println("has ada: ${has(users, User { name: "ada", age: 36 })}")
+  io.println("has [2]: ${has([[1], [2]], [2])}")
+  io.println("words: ${["pear", "fig", "apple"].sorted().join(" ")}")
+  User { name: "ada", age: 36 }.announce()
+  Role.Admin.announce()
+}

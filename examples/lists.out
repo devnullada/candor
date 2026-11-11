@@ -1,0 +1,14 @@
+unpaid: 2, 4
+unpaid total: 380
+Ada ordered: true
+#1 Ada
+#2 Grace
+#3 Ada
+#4 Linus
+first big unpaid: Linus
+base: 3, copy: 4
+equal: true
+evens: 0 2 4 6
+countdown: 3 2 1
+third: Ada
+tenth: nobody

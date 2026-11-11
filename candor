@@ -1,0 +1,3 @@
+#!/bin/sh
+# Candor from a clone, on macOS and Linux (candor.cmd on Windows). Releases are one binary.
+exec bun --no-env-file run "$(dirname "$0")/src/cli.ts" "$@"

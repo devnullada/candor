@@ -1,0 +1,205 @@
+module net
+
+// DNS and TCP, with `uses net`: `net.lookupA(name)`, `lookupAaaa`, `lookupCname`, `lookupMx`,
+// `lookupNs`, `lookupTxt`, and `net.reachable(host, port, timeoutMs)`, which opens a TCP
+// connection and closes it again. A lookup gives up after 5 s.
+//
+// In a test nothing resolves and no port answers until the test says so:
+// `net.setRecords(name, .Txt, ["v=spf1 -all"])`, `net.setMx(name, [...])`,
+// `net.setReachable(host, port, ms)`, `net.setUnreachable(host, port, error)`.
+
+// Why a lookup or a probe failed.
+pub enum NetError {
+  // No such name, or no records of that type.
+  NotFound { name: string }
+  // No answer in time.
+  Timeout
+  // The host answered, but nothing listens on the port.
+  Refused
+  // Anything else: no route, a bad name, the resolver failing.
+  Failed { message: string }
+}
+
+impl Show for NetError {
+  fn toString(self) -> string {
+    return match self {
+      .NotFound { name } => "${name}: not found",
+      .Timeout => "timed out",
+      .Refused => "connection refused",
+      .Failed { message } => message,
+    }
+  }
+}
+
+// A mail server for a domain. The lower `priority` is tried first.
+pub struct Mx {
+  pub host: string
+  pub priority: int
+}
+
+// The record types a test sets with `net.setRecords`; MX has `net.setMx`.
+pub enum RecordType {
+  A
+  Aaaa
+  Cname
+  Ns
+  Txt
+}
+
+// The network: having `net` is the permission to look names up and open connections.
+effect net {
+  extern "./netgo" {
+    fn LookupA(ctx, name: string) -> Result<List<string>, GoError> as goLookupA
+    fn LookupAAAA(ctx, name: string) -> Result<List<string>, GoError> as goLookupAaaa
+    fn LookupCNAME(ctx, name: string) -> Result<string, GoError> as goLookupCname
+    fn LookupNS(ctx, name: string) -> Result<List<string>, GoError> as goLookupNs
+    fn LookupMX(ctx, name: string) -> Result<List<string>, GoError> as goLookupMx
+    fn LookupTXT(ctx, name: string) -> Result<List<string>, GoError> as goLookupTxt
+    fn Reach(ctx, host: string, port: int, timeoutMs: int) -> Result<int, GoError> as goReach
+  }
+
+  // The IPv4 addresses of `name`, sorted: `["93.184.215.14"]`.
+  pub fn lookupA(name: string) -> Result<List<string>, NetError> {
+    return goLookupA(name).mapErr((e) => netError(name, e))
+  }
+
+  // The IPv6 addresses of `name`, sorted.
+  pub fn lookupAaaa(name: string) -> Result<List<string>, NetError> {
+    return goLookupAaaa(name).mapErr((e) => netError(name, e))
+  }
+
+  // The canonical name `name` is an alias of, without the trailing dot; `name` itself when it
+  // is no alias.
+  pub fn lookupCname(name: string) -> Result<string, NetError> {
+    return goLookupCname(name).mapErr((e) => netError(name, e))
+  }
+
+  // The name servers of `name`, without trailing dots, sorted.
+  pub fn lookupNs(name: string) -> Result<List<string>, NetError> {
+    return goLookupNs(name).mapErr((e) => netError(name, e))
+  }
+
+  // The mail servers of `name`, lowest priority first.
+  pub fn lookupMx(name: string) -> Result<List<Mx>, NetError> {
+    let flat = goLookupMx(name).mapErr((e) => netError(name, e))?
+    let mut out: List<Mx> = []
+    for i in 0..(flat.length() / 2) {
+      out.push(Mx { priority: (flat[2 * i] ?? "").toInt() ?? 0, host: flat[2 * i + 1] ?? "" })
+    }
+    return Ok(out)
+  }
+
+  // The TXT records of `name`, each one's strings joined: `["v=spf1 include:_spf.example -all"]`.
+  pub fn lookupTxt(name: string) -> Result<List<string>, NetError> {
+    return goLookupTxt(name).mapErr((e) => netError(name, e))
+  }
+
+  // Opens a TCP connection to `host` on `port` and closes it: the milliseconds it took, or why
+  // not. Nothing is sent.
+  pub fn reachable(host: string, port: int, timeoutMs: int) -> Result<int, NetError> {
+    return goReach(host, port, timeoutMs).mapErr((e) => netError(host, e))
+  }
+}
+
+// Answers from what the test set; nothing goes over the network.
+fake net {
+  let mut records: Map<string, List<string>> = [:]
+  let mut mail: Map<string, List<Mx>> = [:]
+  let mut ports: Map<string, Result<int, NetError>> = [:]
+
+  fn lookupA(name: string) -> Result<List<string>, NetError> {
+    return found(records, "A ${name}", name)
+  }
+
+  fn lookupAaaa(name: string) -> Result<List<string>, NetError> {
+    return found(records, "Aaaa ${name}", name)
+  }
+
+  fn lookupCname(name: string) -> Result<string, NetError> {
+    let names = found(records, "Cname ${name}", name)?
+    return Ok(names[0] ?? name)
+  }
+
+  fn lookupNs(name: string) -> Result<List<string>, NetError> {
+    return found(records, "Ns ${name}", name)
+  }
+
+  fn lookupMx(name: string) -> Result<List<Mx>, NetError> {
+    return match mail[name] {
+      none => Err(NetError.NotFound { name }),
+      mx => Ok(mx),
+    }
+  }
+
+  fn lookupTxt(name: string) -> Result<List<string>, NetError> {
+    return found(records, "Txt ${name}", name)
+  }
+
+  // Takes the time the test set, on the fake clock; one past `timeoutMs` is a `.Timeout`.
+  fn reachable(host: string, port: int, timeoutMs: int) -> Result<int, NetError> uses clock {
+    let answer = ports["${host}:${port}"] ?? Err(NetError.Refused)
+    return match answer {
+      Ok(ms) => if ms > timeoutMs {
+        clock.sleep(timeoutMs)
+        Err(NetError.Timeout)
+      } else {
+        clock.sleep(ms)
+        Ok(ms)
+      },
+      Err(e) => Err(e),
+    }
+  }
+
+  // `name` resolves to `values` for that record type from now on.
+  fn setRecords(name: string, type_: RecordType, values: List<string>) {
+    records["${type_} ${name}"] = values
+  }
+
+  // `name`'s mail servers from now on, in the order given.
+  fn setMx(name: string, servers: List<Mx>) {
+    mail[name] = servers
+  }
+
+  // `host` answers on `port` after `ms` milliseconds from now on.
+  fn setReachable(host: string, port: int, ms: int) {
+    ports["${host}:${port}"] = Ok(ms)
+  }
+
+  // `host` fails on `port` with `error` from now on (an unset port is `.Refused`).
+  fn setUnreachable(host: string, port: int, error: NetError) {
+    ports["${host}:${port}"] = Err(error)
+  }
+}
+
+impl Show for RecordType {
+  fn toString(self) -> string {
+    return match self {
+      .A => "A",
+      .Aaaa => "Aaaa",
+      .Cname => "Cname",
+      .Ns => "Ns",
+      .Txt => "Txt",
+    }
+  }
+}
+
+fn found(records: Map<string, List<string>>, key: string, name: string) -> Result<List<string>, NetError> {
+  return match records[key] {
+    none => Err(NetError.NotFound { name }),
+    values => Ok(values),
+  }
+}
+
+extern "./netgo" {
+  fn Kind(err: GoError) -> int as kind
+}
+
+// The runtime's failure as a NetError.
+fn netError(name: string, e: GoError) -> NetError {
+  return match kind(e) {
+    0 => NetError.NotFound { name },
+    1 => NetError.Timeout,
+    2 => NetError.Refused,
+    _ => NetError.Failed { message: e.message() },
+  }
+}

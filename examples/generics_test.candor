@@ -1,0 +1,20 @@
+module generics
+
+test "pages" {
+  assert paginate([1, 2, 3], 2) == [Page { items: [1, 2], next: "page 2" }, Page<int> { items: [3], next: none }]
+  assert paginate<int>([], 2) == [Page<int> { items: [], next: none }]
+}
+
+test "trees sort" {
+  let mut t = Tree<int>.Leaf
+  for n in [5, 2, 8, 1] {
+    t = insert(t, n)
+  }
+  assert inOrder(t) == [1, 2, 5, 8]
+  assert first(inOrder(t)) == 1
+}
+
+test "each prints through the fake" {
+  each([1, 2], (n) => io.println(n.toString()))
+  assert io.output() == "1\n2\n"
+}

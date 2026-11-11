@@ -1,0 +1,28 @@
+module orders
+
+test "describes each status" {
+  let bob = Customer { name: "Bob", vip: false }
+  let o = Order { id: 7, customer: bob, total: 90, status: Status.Pending }
+  assert "${o}" == "#7 for Bob, pending"
+  assert Order { ...o, status: Status.Refunded { amount: 5, reason: "broken" } }.toString() == "#7 for Bob, refunded 5: broken"
+}
+
+test "VIPs are marked, and get 10% back once paid" {
+  let ada = Customer { name: "Ada", vip: true }
+  let o = Order { id: 1, customer: ada, total: 250, status: Status.Paid { at: 3 } }
+  assert "${o}" == "#${o.id} for Ada (VIP), paid at 3"
+  assert discount(o) == 25
+  assert discount(Order { ...o, customer: Customer { ...ada, vip: false } }) == 0
+}
+
+test "an expression shows as written, and so does a list of them" {
+  let two = Expr.Num { value: 2 }
+  assert "${Expr.Add { left: two, right: two }}" == "Expr.Add { left: Expr.Num { value: 2 }, right: Expr.Num { value: 2 } }"
+  assert [two].toString() == "[Expr.Num { value: 2 }]"
+}
+
+test "a refund comes off the total" {
+  let bob = Customer { name: "Bob", vip: false }
+  let o = Order { id: 4, customer: bob, total: 90, status: Status.Paid { at: 3 } }
+  assert refund(o, 90, "lost").total == 0
+}

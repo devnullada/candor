@@ -1,0 +1,36 @@
+module words
+
+import "bindings/strings"
+
+// Maps: values like lists, in insertion order, so what they print is the same every run.
+
+fn count(text: string) -> Map<string, int> {
+  let mut counts: Map<string, int> = [:]
+  for w in strings.words(text.toLowerCase()) {
+    counts[w] = (counts[w] ?? 0) + 1
+  }
+  return counts
+}
+
+// Words by how often they appear.
+fn byCount(counts: Map<string, int>) -> Map<int, List<string>> {
+  let mut out: Map<int, List<string>> = [:]
+  for (w, n) in counts {
+    let mut ws = out[n] ?? []
+    ws.push(w)
+    out[n] = ws
+  }
+  return out
+}
+
+fn main() uses io {
+  let counts = count("the cat sat on the hat and THE mat")
+  for (w, n) in counts {
+    io.println("${w} ${n}")
+  }
+  io.println(counts.keys().join(","))
+  let groups = byCount(counts)
+  for n in groups.keys().sorted() {
+    io.println("${n}x: ${(groups[n] ?? []).join(" ")}")
+  }
+}

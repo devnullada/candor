@@ -1,0 +1,40 @@
+module failing
+
+test "passes" {
+  assert total(1, 1) == 1
+}
+
+test "arithmetic" {
+  let a = 20
+  assert total(a, 22) == 42
+}
+
+test "optional" {
+  assert (find("Bob") ?? "?") == "ada@example.com"
+}
+
+test "short circuit" {
+  let n = 0
+  assert n > 0 && 10 / n == 1
+}
+
+test "enum" {
+  let s = circle()
+  assert area(s) == 28
+}
+
+test "multi-line" {
+  assert (
+    total(2, 2) ==
+      5
+  )
+}
+
+test "io" {
+  io.println("héllo")
+  assert io.output() == "hello\n"
+}
+
+test "panics" {
+  assert div(1, 0) == 0
+}

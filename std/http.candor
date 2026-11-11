@@ -1,0 +1,1211 @@
+module http
+
+import "fs"
+import "json"
+
+// An HTTP server: `http.serve(":8080", handle)` calls `handle` for every request, each in a task
+// of its own, and sends back the Response it gives.
+//
+// `handle` is a plain function from Request to Response, so tests call it directly; `serve`
+// itself doesn't run in tests.
+//
+// And a client: `http.get(url)`, `http.post(url, body)`, `http.postJson(url, value)`, or
+// `http.send(req)` for anything else; `http.openStream(req)` with `http.readingResponse` for a
+// body read as it comes, `http.listen(url, ...)` for server-sent events, which a server sends
+// with `http.events(...)`, and `http.connect(url, talk)` for a WebSocket. In tests the fake
+// answers: `http.respond(url, status, body)` for one URL, `http.answer(handle)` to answer with a
+// handler (WebSockets too), and `http.sent()` lists what was sent.
+//
+// Bodies are strings; a binary one rides in `body` as it is, and `body.toBytes()` reads it
+// exactly. Send one with `http.bytesResponse`, `http.postBytes` or `http.withBody`. A body too
+// large to hold is read with `http.reading(req, (r) => ...)` and written with
+// `http.writing(status, headers, (w) => ...)`: readers and writers as `bytes` describes them. Files: `http.serveDir(root, rest)` serves a directory, `http.serveFile`
+// one file, with `uses fs`.
+//
+// Gzip is taken care of: `serve` gzips a text-like response for a client that takes it (see
+// `ServeOptions.gzip`; `http.served(req, res)` shows it in a test), and the client un-gzips a
+// gzipped body, so `res.body` is always the content and has no `content-encoding`.
+
+// One request. Header names are lowercase; a header or query key given twice keeps the first
+// here, and `http.queryAll(req, "tag")` or `http.headerAll(req, name)` gives every value.
+// `headers["host"]` is the name and port the client reached (HTTP/2's `:authority` too), as
+// sent: a server that answers only on loopback checks it against DNS rebinding.
+pub struct Request {
+  pub method: string
+  // Without the query: `/todos/3`.
+  pub path: string
+  pub query: Map<string, string>
+  pub headers: Map<string, string>
+  // As it came, UTF-8 or not: `req.body.toBytes()` gives a binary one (an upload) exactly.
+  pub body: string
+  // The client's IP, without the port (`127.0.0.1`, `::1`): set by `serve`, none in a test
+  // unless it sets one. Behind a proxy it is the proxy's; which `x-forwarded-for` to trust is
+  // the app's call.
+  pub remote: string?
+  // The client's port, as `serve` saw it: with `remote`, Go's `RemoteAddr`.
+  pub remotePort: int?
+  // On a route `serveWith` was told takes large bodies, the body, unread, for `http.reading`
+  // (`body` is then ""): the runtime keeps it, so a Request stays a value `==` compares. A test
+  // makes one with `http.streamed(req, pieces)`.
+  stream: int?
+  // Every value of the query keys and headers given more than once: set by `serve`, or in a
+  // test by `http.withQuery` and `http.withHeader`.
+  queryAll: Map<string, List<string>>?
+  headersAll: Map<string, List<string>>?
+}
+
+// A response. A header sent more than once (`set-cookie`) has its first value in `headers` and
+// the rest added with `http.addHeader`.
+pub struct Response {
+  pub status: int
+  pub headers: Map<string, string>
+  // Text, or the bytes `http.bytesResponse` put there: `res.body.toBytes()` gives them exactly.
+  pub body: string
+  // Set by `http.streamResponse`: the body is written a piece at a time, and `body` isn't sent.
+  // The runtime keeps the writer, so a Response stays a value `==` compares.
+  stream: int?
+  // From `http.addHeader`: the values sent after the one in `headers`, by name.
+  more: Map<string, List<string>>?
+  // Set by the client: the URL the response came from, after any redirects. `none` on a
+  // response a server makes.
+  pub url: string?
+}
+
+// How `serveWith` serves. A field left out keeps the way `serve` does it.
+pub struct ServeOptions {
+  // Routes, written as for `http.route`, whose request bodies aren't read before the handler
+  // runs: it reads them with `http.reading`, at any size. Other bodies are read whole, up to
+  // 1 MiB (a larger one is answered 413).
+  pub largeBodies: List<string>?
+  // On Ctrl-C or SIGTERM, how long the requests in flight get to finish before they are
+  // cancelled: 10 s unless set.
+  pub graceMs: int?
+  // Whether a response goes out gzipped to a client that takes it: on unless `false`. Only
+  // text-like types are (HTML, CSS, JavaScript, JSON, XML, SVG, plain text, not an event
+  // stream), 1 KiB or more, not ranged, and not given a `content-encoding` by the handler.
+  pub gzip: bool?
+}
+
+// One server-sent event. `data` may hold newlines; `event` names its kind (a browser's
+// `addEventListener(event, ...)`); `id` is what a reconnecting client sends back as
+// `last-event-id`.
+pub struct Event {
+  pub data: string
+  pub event: string?
+  pub id: string?
+}
+
+// One end of a WebSocket: the server's, from `http.upgrade`; the client's, from `http.connect`,
+// or in a test from `http.socketOf`. `send` and `receive` are for text; `sendBytes` and
+// `receiveMessage` for a protocol with binary messages too.
+pub struct WebSocket {
+  // Sends one text message; false if the connection is closed.
+  pub send: fn(string) -> bool
+  // Sends one binary message; false if the connection is closed.
+  pub sendBytes: fn(Bytes) -> bool
+  // The next text message, skipping binary ones, or none once the connection is closed.
+  pub receive: fn() -> string?
+  // The next message, text or binary, or none once the connection is closed.
+  pub receiveMessage: fn() -> Message?
+  // Closes this end; the other's `receive` then gives none.
+  pub close: fn()
+}
+
+// One WebSocket message, as `receiveMessage` gives it.
+pub enum Message {
+  Text { text: string }
+  Binary { data: Bytes }
+}
+
+// The runtime's message as a Message (`webSocket` in emit-go calls it).
+fn messageOf(binary: bool, data: string) -> Message {
+  return if binary { Message.Binary { data: data.toBytes() } } else { Message.Text { text: data } }
+}
+
+// What `http.readResponse` read before the body broke, and why it broke.
+pub struct BodyBroken<A> {
+  pub sofar: A
+  pub message: string
+}
+
+// A request this program sends. `http.request("PUT", url)` gives one with no headers, an empty
+// body and a 30 s timeout; change it with `...`:
+//
+//   http.send(http.ClientRequest { ...http.request("PUT", url), body: text })
+//
+// `http.addRequestHeader(req, name, value)` sends a header once more. A `host` header is the
+// Host sent (a virtual host on the URL's server), as `curl -H "Host: ..."` does.
+pub struct ClientRequest {
+  pub method: string
+  pub url: string
+  pub headers: Map<string, string>
+  pub body: string
+  // How long to wait for the response; `0` waits for as long as it takes.
+  pub timeoutMs: int
+  // From `http.addRequestHeader`: the values sent after the one in `headers`, by lowercase name.
+  more: Map<string, List<string>>?
+  // How many redirects to follow. Left out, up to 10, and one more is an error; `0` gives the
+  // redirect itself, its `location` header unfollowed. `res.url` says where it landed.
+  pub redirects: int?
+  // `false` asks for the body as the server has it: no `accept-encoding: gzip` added. Left out,
+  // gzip is asked for and undone, so `res.body` is the content either way.
+  pub compressed: bool?
+  // `false` closes the connection after this request (`connection: close`) rather than keep it
+  // for the next. Left out, it is kept.
+  pub keepAlive: bool?
+}
+
+// A WebSocket `http.dialSocket` opened, for `http.connectWith` to talk over.
+pub struct Dialed {
+  id: int
+}
+
+// Why no response came. A response is never an error, whatever its status: check `res.status`.
+pub enum HttpError {
+  // A bad URL, a refused or broken connection, a body over 16 MiB.
+  Failed { message: string }
+  // No response within the request's `timeoutMs`.
+  Timeout
+}
+
+impl Show for HttpError {
+  fn toString(self) -> string {
+    return match self {
+      .Failed { message } => message,
+      .Timeout => "no response in time",
+    }
+  }
+}
+
+// `res` as the client gives it: a gzipped body un-gzipped, `content-encoding` gone, as the real
+// client does (the fake's answers are what a server would send).
+fn unzipped(res: Response) -> Response {
+  if res.stream != none || (res.headers["content-encoding"] ?? "").toLowerCase() != "gzip" {
+    return res
+  }
+  let body = gunzipText(res.body)
+  if body == none {
+    return res
+  }
+  let mut headers = res.headers
+  headers.remove("content-encoding")
+  headers.remove("content-length")
+  return Response { ...res, headers, body }
+}
+
+// `s` un-gzipped, or none. The compiler gives it its body (`stdBody`).
+fn gunzipText(s: string) -> string? {
+  return none
+}
+
+// What the fake answers one URL with.
+struct Canned {
+  url: string
+  response: Response
+}
+
+// The network: having `http` is the permission to serve and to send.
+effect http {
+  // The WebSocket library wsgo (below) is written on.
+  extern "github.com/coder/websocket@v1.8.14" {}
+
+  extern "./httpclient" {
+    type *Reply
+    fn Send(ctx, method: string, url: string, headers: List<string>, more: List<string>, body: string, timeoutMs: int, redirects: int, compressed: bool, keepAlive: bool) -> Result<Reply, GoError> as goSend
+    fn (r: Reply) Status() -> int as replyStatus
+    fn (r: Reply) URL() -> string as replyURL
+    fn (r: Reply) Headers() -> List<string> as replyHeaders
+    fn (r: Reply) More() -> List<string> as replyMore
+    fn (r: Reply) Body() -> string as replyBody
+    fn IsTimeout(err: GoError) -> bool as isTimeout
+    fn OpenStream(ctx, method: string, url: string, headers: List<string>, more: List<string>, body: string, timeoutMs: int, redirects: int, compressed: bool, keepAlive: bool) -> Result<Reply, GoError> as goOpenStream
+    fn (r: Reply) Stream() -> int as replyStream
+  }
+
+  extern "./wsgo" {
+    fn Dial(ctx, url: string, headers: List<string>, more: List<string>, timeoutMs: int) -> Result<int, GoError> as goDial
+  }
+
+  // Sends `req` and reads the whole response, whatever its status.
+  pub fn send(req: ClientRequest) -> Result<Response, HttpError> {
+    let redirects = redirectLimit(req)?
+    match goSend(req.method, req.url, flatHeaders(req), flatMore(req), req.body, req.timeoutMs, redirects, req.compressed ?? true, req.keepAlive ?? true) {
+      Ok(r) => return Ok(Response { status: replyStatus(r), headers: pairs(replyHeaders(r), 0), body: replyBody(r), more: grouped(replyMore(r)), url: replyURL(r) }),
+      Err(e) => return Err(if isTimeout(e) { HttpError.Timeout } else { HttpError.Failed { message: e.message() } }),
+    }
+  }
+
+  // Sends `req` and gives the response as soon as it starts, its body unread: read it with
+  // `http.readResponse`, a piece at a time as it comes, for as long as the server sends.
+  // `timeoutMs` bounds the wait for the response to start.
+  pub fn openStream(req: ClientRequest) -> Result<Response, HttpError> {
+    let redirects = redirectLimit(req)?
+    match goOpenStream(req.method, req.url, flatHeaders(req), flatMore(req), req.body, req.timeoutMs, redirects, req.compressed ?? true, req.keepAlive ?? true) {
+      Ok(r) => return Ok(Response { status: replyStatus(r), headers: pairs(replyHeaders(r), 0), body: "", stream: replyStream(r), more: grouped(replyMore(r)), url: replyURL(r) }),
+      Err(e) => return Err(if isTimeout(e) { HttpError.Timeout } else { HttpError.Failed { message: e.message() } }),
+    }
+  }
+
+  // Opens a WebSocket to `req.url` (`ws://`, `wss://`): the step under `http.connectWith`, which
+  // talks over it and closes it. `timeoutMs` bounds the handshake.
+  pub fn dialSocket(req: ClientRequest) -> Result<Dialed, HttpError> {
+    match goDial(req.url, flatHeaders(req), flatMore(req), req.timeoutMs) {
+      Ok(id) => return Ok(Dialed { id }),
+      Err(e) => return Err(if isTimeout(e) { HttpError.Timeout } else { HttpError.Failed { message: e.message() } }),
+    }
+  }
+}
+
+// Answers what tests send from what they set up; nothing goes over the network. A test reads
+// `http.requests`, every request sent so far, in order.
+fake http {
+  let mut canned: List<Canned> = []
+  let mut handler: (fn(Request) -> Response uses clock)? = none
+  let mut requests: List<ClientRequest> = []
+
+  // The handler runs on the fake clock: one slower than `timeoutMs` is a `.Timeout`. A redirect
+  // is followed through the table and the handler as the real client follows it; each request
+  // made is in `http.requests`.
+  fn send(req: ClientRequest) -> Result<Response, HttpError> uses clock, tasks {
+    redirectLimit(req)?
+    let mut at = req
+    let mut hops = 0
+    while true {
+      requests.push(at)
+      let current = at
+      let res = match cannedFor(canned, at.url) {
+        none => match handler {
+          none => return Err(nothingAnswers(at)),
+          h => match answerIn(current, h) {
+            none => return Err(HttpError.Timeout),
+            r => Response { status: r.status, headers: r.headers, body: bodyOf(r), more: r.more },
+          },
+        },
+        c => c,
+      }
+      match hop(at, res, hops)? {
+        none => return Ok(Response { ...unzipped(res), url: at.url }),
+        next => {
+          at = next
+          hops += 1
+        }
+      }
+    }
+    return Err(nothingAnswers(at))
+  }
+
+  fn openStream(req: ClientRequest) -> Result<Response, HttpError> uses clock, tasks {
+    redirectLimit(req)?
+    let mut at = req
+    let mut hops = 0
+    while true {
+      requests.push(at)
+      let current = at
+      let res = match cannedFor(canned, at.url) {
+        none => match handler {
+          none => return Err(nothingAnswers(at)),
+          h => match answerIn(current, h) {
+            none => return Err(HttpError.Timeout),
+            r => r,
+          },
+        },
+        c => c,
+      }
+      match hop(at, res, hops)? {
+        none => return Ok(Response { ...unzipped(res), url: at.url }),
+        next => {
+          at = next
+          hops += 1
+        }
+      }
+    }
+    return Err(nothingAnswers(at))
+  }
+
+  // The handler is the server: a response from `http.upgrade` connects, in memory, and its
+  // function runs in a task while the client talks.
+  fn dialSocket(req: ClientRequest) -> Result<Dialed, HttpError> uses clock, tasks {
+    requests.push(req)
+    for c in canned {
+      if c.url == req.url {
+        return Err(HttpError.Failed { message: "${req.url} answered ${c.response.status}, not a WebSocket" })
+      }
+    }
+    return match handler {
+      none => Err(HttpError.Failed { message: "nothing answers the WebSocket at ${req.url} in this test: answer it with `http.answer(handle)`, a handler that calls `http.upgrade`" }),
+      h => match answerIn(req, h) {
+        none => Err(HttpError.Timeout),
+        res => upgraded(req.url, res),
+      },
+    }
+  }
+
+  // Answers `url` (exactly, query included) with `status` and `body` from now on.
+  fn respond(url: string, status: int, body: string) {
+    canned.push(Canned { url, response: Response { status, headers: [:], body } })
+  }
+
+  // Answers `url` with `res`, headers and all, from now on: a redirect needs its `location`,
+  // `http.Response { status: 301, headers: ["location": "https://b.test/"], body: "" }`.
+  fn respondWith(url: string, res: Response) {
+    canned.push(Canned { url, response: res })
+  }
+
+  // Answers every URL `respond` didn't name with `handle`: the app's own handler, say. It gets
+  // the request as a server would, path and query split, header names lowercase. It may use
+  // `clock`: one that sleeps past the request's `timeoutMs` is a timeout, in virtual time.
+  fn answer(handle: fn(Request) -> Response uses clock) {
+    handler = handle
+  }
+
+  // Every request sent so far, in order.
+  fn sent() -> List<ClientRequest> {
+    return requests
+  }
+}
+
+extern "./httpclient" {
+  fn URLParts(url: string) -> List<string> as urlParts
+  fn Resolve(base: string, ref: string) -> string as resolveURL
+}
+
+// The redirects `req` follows, for the Go client: -1 when it doesn't say.
+fn redirectLimit(req: ClientRequest) -> Result<int, HttpError> {
+  let n = req.redirects ?? -1
+  if req.redirects != none && n < 0 {
+    return Err(HttpError.Failed { message: "redirects is ${n}: give 0 or more, or leave it out to follow up to 10" })
+  }
+  return Ok(n)
+}
+
+// What the fake's table answers `url` with, if anything.
+fn cannedFor(canned: List<Canned>, url: string) -> Response? {
+  for c in canned {
+    if c.url == url {
+      return c.response
+    }
+  }
+  return none
+}
+
+fn nothingAnswers(req: ClientRequest) -> HttpError {
+  return HttpError.Failed { message: "nothing answers ${req.method} ${req.url} in this test: set it up with `http.respond(url, status, body)` or `http.answer(handle)`" }
+}
+
+// The request the fake makes next when `res`, the answer to `at`, is a redirect to follow:
+// `hops` have been followed so far. As Go's client: 307 and 308 keep the method and body, the
+// others become a GET (a HEAD stays one).
+fn hop(at: ClientRequest, res: Response, hops: int) -> Result<ClientRequest?, HttpError> {
+  let mut location = ""
+  for (name, value) in res.headers {
+    if name.toLowerCase() == "location" {
+      location = value
+    }
+  }
+  let redirect = res.status == 301 || res.status == 302 || res.status == 303 || res.status == 307 || res.status == 308
+  if !redirect || location == "" {
+    return Ok(none)
+  }
+  let to = resolveURL(at.url, location)
+  if hops >= (at.redirects ?? 10) {
+    if at.redirects == none {
+      return Err(HttpError.Failed { message: "${at.method} \"${to}\": stopped after 10 redirects" })
+    }
+    return Ok(none)
+  }
+  let keep = res.status == 307 || res.status == 308
+  return Ok(ClientRequest {
+    ...at,
+    method: if keep || at.method == "HEAD" { at.method } else { "GET" },
+    url: to,
+    body: if keep { at.body } else { "" },
+  })
+}
+
+// WebSockets, on github.com/coder/websocket: loading the package lets the runtime accept one.
+extern "./wsgo" {
+  fn Ready() -> bool as wsReady
+}
+
+// A request with no headers, an empty body and a 30 s timeout.
+pub fn request(method: string, url: string) -> ClientRequest {
+  return ClientRequest { method, url, headers: [:], body: "", timeoutMs: 30_000 }
+}
+
+// `GET url`.
+pub fn get(url: string) -> Result<Response, HttpError> uses http {
+  return http.send(request("GET", url))
+}
+
+// `POST url` with `body` as it is.
+pub fn post(url: string, body: string) -> Result<Response, HttpError> uses http {
+  return http.send(ClientRequest { ...request("POST", url), body })
+}
+
+// Opens a WebSocket to `url` (`ws://...`) and calls `talk` with this end; the connection closes
+// when `talk` returns. `Err` if it couldn't connect. In a test, the handler given to
+// `http.answer` is the server: when it answers with `http.upgrade`, its function talks to `talk`.
+//
+//   http.connect("ws://127.0.0.1:8080/chat", (ws) => {
+//     ws.send("hi")
+//     io.println(ws.receive() ?? "closed")
+//   })?
+pub fn connect(url: string, talk: fn(WebSocket)) -> Result<void, HttpError> uses http, talk {
+  return connectWith(request("GET", url), talk)
+}
+
+// `connect`, sending `req`'s headers; its `timeoutMs` bounds the handshake.
+pub fn connectWith(req: ClientRequest, talk: fn(WebSocket)) -> Result<void, HttpError> uses http, talk {
+  talkOver(http.dialSocket(req)?, talk)
+  return Ok()
+}
+
+// Runs `talk` over the WebSocket `dialSocket` opened, and closes it.
+fn talkOver(conn: Dialed, talk: fn(WebSocket)) uses talk {
+  // The compiler gives this its body (`stdBody`).
+}
+
+// The fake's connection to the test handler's response `res`, if it is an upgrade.
+fn upgraded(url: string, res: Response) -> Result<Dialed, HttpError> {
+  if res.status == 101 {
+    match res.stream {
+      none => {},
+      id => return Ok(Dialed { id }),
+    }
+  }
+  return Err(HttpError.Failed { message: "${url} answered ${res.status}, not a WebSocket" })
+}
+
+// `req` sending one more `name` header, after any it has.
+pub fn addRequestHeader(req: ClientRequest, name: string, value: string) -> ClientRequest {
+  let key = name.toLowerCase()
+  for (given, _) in req.headers {
+    if given.toLowerCase() == key {
+      let mut more = req.more ?? [:]
+      more[key] = (more[key] ?? []).concat([value])
+      return ClientRequest { ...req, more }
+    }
+  }
+  let mut headers = req.headers
+  headers[name] = value
+  return ClientRequest { ...req, headers }
+}
+
+// `req`'s headers as flat name, value pairs, for Go.
+fn flatHeaders(req: ClientRequest) -> List<string> {
+  let mut flat: List<string> = []
+  for (name, value) in req.headers {
+    flat.push(name)
+    flat.push(value)
+  }
+  return flat
+}
+
+// The headers `addRequestHeader` added, as flat name, value pairs.
+fn flatMore(req: ClientRequest) -> List<string> {
+  let mut flat: List<string> = []
+  for (name, values) in req.more ?? [:] {
+    for value in values {
+      flat.push(name)
+      flat.push(value)
+    }
+  }
+  return flat
+}
+
+// Flat name, value pairs grouped by name; none if there are none.
+fn grouped(flat: List<string>) -> Map<string, List<string>>? {
+  if flat.isEmpty() {
+    return none
+  }
+  let mut m: Map<string, List<string>> = [:]
+  for (i, name) in flat.enumerated() {
+    if i % 2 == 0 {
+      m[name] = (m[name] ?? []).concat([flat[i + 1] ?? ""])
+    }
+  }
+  return m
+}
+
+// `POST url` with `data` as the body, its content type `contentType`: an upload.
+pub fn postBytes(url: string, contentType: string, data: Bytes) -> Result<Response, HttpError> uses http {
+  return http.send(withBody(ClientRequest { ...request("POST", url), headers: ["content-type": contentType] }, data))
+}
+
+// `req` with `data` as its body: `http.send(http.withBody(http.request("PUT", url), data))`.
+pub fn withBody(req: ClientRequest, data: Bytes) -> ClientRequest {
+  return ClientRequest { ...req, body: rawText(data) }
+}
+
+// `data` in a string as it is, UTF-8 or not: the way a binary body rides in `body`, which reads
+// back exactly with `body.toBytes()`.
+fn rawText(data: Bytes) -> string {
+  // The compiler gives this its body (`stdBody`).
+  return data.toText() ?? ""
+}
+
+// `POST url` with `value` as JSON, and the content type that says so.
+pub fn postJson<T: Json>(url: string, value: T) -> Result<Response, HttpError> uses http {
+  return http.send(ClientRequest { ...request("POST", url), headers: ["content-type": "application/json"], body: json.encode(value) })
+}
+
+// Flat name, value pairs from index `from` on, as a map.
+fn pairs(flat: List<string>, from: int) -> Map<string, string> {
+  let mut m: Map<string, string> = [:]
+  for (i, name) in flat.enumerated() {
+    if i >= from && (i - from) % 2 == 0 {
+      m[name] = flat[i + 1] ?? ""
+    }
+  }
+  return m
+}
+
+// The fake's handler answering `req` within its `timeoutMs` on the fake clock, none if it took
+// longer; `0` waits for as long as it takes.
+fn answerIn(req: ClientRequest, h: fn(Request) -> Response uses clock) -> Response? uses clock, tasks {
+  if req.timeoutMs == 0 {
+    return h(incoming(req))
+  }
+  return tasks.timeout(req.timeoutMs, () => h(incoming(req)))
+}
+
+// `req` as the server it goes to would see it.
+fn incoming(req: ClientRequest) -> Request {
+  let parts = urlParts(req.url)
+  let mut headers: Map<string, string> = [:]
+  for (name, value) in req.headers {
+    headers[name.toLowerCase()] = value
+  }
+  let mut r = Request { method: req.method, path: parts[0] ?? "/", query: pairs(parts, 1), headers, body: req.body }
+  for (name, values) in req.more ?? [:] {
+    r = withHeader(r, name, headerAll(r, name).concat(values))
+  }
+  return r
+}
+
+// Serves `handle` on `addr` (":8080" for every interface, "127.0.0.1:8080" for this machine only,
+// which on Windows doesn't ask the firewall) until the task running it is cancelled, or gives why it
+// couldn't listen. Every request runs in a task of its own, so `handle` must not count on the
+// order requests come in. A crash in `handle` is printed, and that request gets a 500.
+//
+// Ctrl-C or SIGTERM stops it gracefully: it stops listening, lets the requests in flight finish
+// (up to `graceMs`, 10 s; event streams and WebSockets are cut at once) and returns `Ok`, so
+// `main` carries on after it and the program exits 0. A second Ctrl-C ends the program at once.
+// Cancelled instead, the requests in flight are cancelled too.
+pub fn serve(addr: string, handle: fn(Request) -> Response) -> Result<void, string> uses http, tasks, handle {
+  return serveWith(addr, ServeOptions {}, handle)
+}
+
+// `serve`, with options: `http.serveWith(addr, http.ServeOptions { largeBodies: ["POST /blobs"] }, handle)`.
+pub fn serveWith(addr: string, options: ServeOptions, handle: fn(Request) -> Response) -> Result<void, string> uses http, tasks, handle {
+  // The compiler gives this its body (`stdBody` in emit-go).
+  return Err(addr)
+}
+
+// A response whose body `write` sends a piece at a time, each as soon as it is written: for
+// bodies too large to hold, or that come slowly. `write` runs after the handler returns, in the
+// request's task, with the handler's effects; if the client goes away, the task is cancelled.
+// New code writes with `http.writing`, which takes a writer and can fail.
+//
+//   return http.streamResponse(200, ["content-type": "text/csv"], (send) => {
+//     for row in rows { send("${row.id},${row.name}\n") }
+//   })
+pub fn streamResponse(status: int, headers: Map<string, string>, write: fn(fn(string))) -> Response uses write {
+  // The compiler gives this its body (`stdBody`): the response holds `write`, effects and all.
+  return Response { status, headers, body: "" }
+}
+
+// `streamResponse` for a binary body: `write` sends Bytes, a piece at a time.
+//
+//   return http.streamBytes(200, ["content-type": "application/octet-stream"], (send) => {
+//     for chunk in chunks { send(chunk) }
+//   })
+pub fn streamBytes(status: int, headers: Map<string, string>, write: fn(fn(Bytes))) -> Response uses write {
+  return streamResponse(status, headers, (send) => write((data) => send(rawText(data))))
+}
+
+// `req` with its body in `pieces`, as a large-body route gets it: for tests of a handler that
+// reads with `http.reading` (a read gives one piece).
+pub fn streamed(req: Request, pieces: List<string>) -> Request {
+  // The compiler gives this its body (`stdBody`).
+  return req
+}
+
+// The whole body of `res`, streamed or not: for tests of a handler that streams.
+pub fn bodyOf(res: Response) -> string {
+  // The compiler gives this its body (`stdBody`).
+  return res.body
+}
+
+// Reads the body of `req` a piece at a time, as `fold` does: `each` combines what it has so far
+// with the next piece. The way to read a body on a route `serveWith` was told takes large ones;
+// on any other request there is one piece, the whole body. `Err` if the body couldn't be read
+// (a broken connection).
+//
+//   let size = http.readBody(req, 0, (n, piece) => n + piece.byteLength())?
+pub fn readBody<A>(req: Request, start: A, each: fn(A, string) -> A) -> Result<A, string> uses each {
+  // The compiler gives this its body (`stdBody`).
+  return Err(req.body)
+}
+
+// Reads the body of `res`, from `http.openStream`, a piece at a time as it arrives, as `fold`
+// does. On any other response there is one piece, the whole body. If the connection breaks,
+// `Err` holds what was read so far.
+//
+//   let size = http.readResponse(res, 0, (n, piece) => n + piece.byteLength())
+pub fn readResponse<A>(res: Response, start: A, each: fn(A, string) -> A) -> Result<A, BodyBroken<A>> uses each {
+  // The compiler gives this its body (`stdBody`).
+  return Err(BodyBroken { sofar: start, message: res.body })
+}
+
+// Gives `f` a reader over the body of `req`, and gives back what `f` does: as
+// `bytes.reading`, so `bytes.readLines(r, ...)`, `bytes.copy(r, w)` and `json.decodeFrom<T>(r)`
+// read it. On a route `serveWith` was told takes large bodies it reads as the body arrives, and
+// a client that has gone ends a read with `Err`; on any other request it reads `req.body`. A
+// test makes a streamed body with `http.streamed(req, pieces)`.
+//
+//   let rows = http.reading(req, (r) => bytes.readLines(r, 0, (n, line) => n + 1))?
+pub fn reading<T, E>(req: Request, f: fn(fn(int) -> Result<Bytes?, string>) -> Result<T, E>) -> Result<T, E> uses f {
+  // The compiler gives this its body (`stdBody`).
+  return f((n) => Ok(none))
+}
+
+// `http.reading` for the body of `res`, from `http.openStream`: read as it arrives, for as long
+// as the server sends. The connection is closed once `f` returns, read to the end or not.
+//
+//   let events = http.readingResponse(res, (r) => bytes.readLines(r, [], keep))?
+pub fn readingResponse<T, E>(res: Response, f: fn(fn(int) -> Result<Bytes?, string>) -> Result<T, E>) -> Result<T, E> uses f {
+  // The compiler gives this its body (`stdBody`).
+  return f((n) => Ok(none))
+}
+
+// A response whose body `write` writes to the writer it is given, each piece sent as soon as it
+// is written: for bodies too large to hold, or that come slowly. `write` runs after the handler
+// returns, in the request's task, with the handler's effects. A write once the client has gone
+// is an `Err`. An `Err` from `write` cuts the connection, so the client sees a broken body, not
+// one that looks whole, and is printed as a crash is. `http.bodyOf(res)` is the body in a test.
+//
+//   return http.writing(200, ["content-type": "text/csv"], (w) => {
+//     for row in rows { w("${row.id},${row.name}\n".toBytes())? }
+//     return Ok()
+//   })
+pub fn writing<E>(status: int, headers: Map<string, string>, write: fn(fn(Bytes) -> Result<void, string>) -> Result<void, E>) -> Response uses write {
+  // The compiler gives this its body (`stdBody`): the response holds `write`, effects and all.
+  return Response { status, headers, body: "" }
+}
+
+// A form a browser posted: `multipart/form-data` (a FormData upload) or
+// `application/x-www-form-urlencoded`. Fields in the order they came; a field sent twice has
+// both values.
+pub struct Form {
+  pub fields: Map<string, List<string>>
+  pub files: List<FormFile>
+}
+
+// One file of a form: the field it came in, its name on the client's disk, the content type the
+// client gave ("" if none), and its bytes.
+pub struct FormFile {
+  pub field: string
+  pub name: string
+  pub contentType: string
+  pub bytes: Bytes
+}
+
+// Why `http.readForm` couldn't read a form. `TooLarge` is a 413 to the client, the others 400.
+pub enum FormError {
+  // The request's content type is neither form type: `contentType` is what it was.
+  NotAForm { contentType: string }
+  // The body passed `limit` bytes.
+  TooLarge { limit: int }
+  Malformed { message: string }
+  // The body couldn't be read: a broken connection.
+  Broken { message: string }
+}
+
+impl Show for FormError {
+  fn toString(self) -> string {
+    return match self {
+      .NotAForm { contentType } => "not a form: content type \"${contentType}\"",
+      .TooLarge { limit } => "the form is over ${limit} bytes",
+      .Malformed { message } => "malformed form: ${message}",
+      .Broken { message } => "the body broke: ${message}",
+    }
+  }
+}
+
+// The form in `req`'s body, read whole into memory: at most `maxBytes` of body, or `TooLarge`.
+// On a route `serveWith` was told takes large bodies it reads the stream; on others the body is
+// already capped at 1 MiB. A test makes a request with `http.formRequest`.
+//
+//   let form = match http.readForm(req, 100_000_000) {
+//     Ok(f) => f,
+//     Err(.TooLarge { limit }) => return http.textResponse(413, "over ${limit} bytes"),
+//     Err(e) => return http.textResponse(400, "not a form"),
+//   }
+//   for file in form.files {
+//     let path = fs.within(dir, file.name)
+//     if path != none {
+//       fs.writeBytes(path, file.bytes)?
+//     }
+//   }
+pub fn readForm(req: Request, maxBytes: int) -> Result<Form, FormError> {
+  // The compiler gives this its body (`stdBody`).
+  return Err(formError(0, req.body, maxBytes))
+}
+
+// The runtime's failure as a FormError (`stdBody` in emit-go calls it).
+fn formError(kind: int, message: string, limit: int) -> FormError {
+  return match kind {
+    0 => FormError.NotAForm { contentType: message },
+    1 => FormError.TooLarge { limit },
+    2 => FormError.Malformed { message },
+    _ => FormError.Broken { message },
+  }
+}
+
+// A request posting `form` as `multipart/form-data`, as a browser's FormData does: for tests of
+// a handler that calls `http.readForm`.
+//
+//   let req = http.formRequest("POST", "/upload", http.Form {
+//     fields: ["folder": ["drums"]],
+//     files: [http.FormFile { field: "file", name: "kick.wav", contentType: "audio/wav", bytes: wav }],
+//   })
+pub fn formRequest(method: string, path: string, form: Form) -> Request {
+  return Request {
+    method,
+    path,
+    query: [:],
+    headers: ["content-type": "multipart/form-data; boundary=candor-form-boundary"],
+    body: formBody(form),
+  }
+}
+
+// `form` as a multipart body with the boundary `formRequest` names. The compiler gives it its
+// body (`stdBody`).
+fn formBody(form: Form) -> string {
+  return ""
+}
+
+// A response that sends events as `write` sends them, until `write` returns or the client goes
+// away (its task is cancelled). A quiet stream gets a comment line every 15 s, so proxies keep
+// it open. A reconnecting client's `req.headers["last-event-id"]` says where it left off.
+//
+//   return http.events([:], (send) => {
+//     for n in 1..4 {
+//       send(http.Event { data: "tick ${n}", id: "${n}" })
+//       clock.sleep(1000)
+//     }
+//   })
+pub fn events(headers: Map<string, string>, write: fn(fn(Event))) -> Response uses write {
+  let mut all = headers
+  all["content-type"] = "text/event-stream"
+  all["cache-control"] = "no-cache"
+  return streamResponse(200, all, (send) => write((e) => send(eventText(e))))
+}
+
+// Answers `req` by making it a WebSocket and calling `talk` with the server's end, once the
+// handler has returned: in the request's task, with the handler's effects, as long as it likes.
+// The connection closes when `talk` returns; when the client goes, `receive` gives none; when
+// the server stops, the task is cancelled. A request that isn't an upgrade is answered 426.
+//
+//   return http.upgrade(req, (ws) => {
+//     while true {
+//       match ws.receive() {
+//         none => return,
+//         text => ws.send("echo: ${text}"),
+//       }
+//     }
+//   })
+pub fn upgrade(req: Request, talk: fn(WebSocket)) -> Response uses talk {
+  // The compiler gives this its body (`stdBody`): the response holds `talk`, effects and all.
+  return Response { status: 101, headers: [:], body: req.body }
+}
+
+// For a test of a handler that upgrades: runs the function `http.upgrade` was given, in a task
+// of `s`, and gives the other end of its WebSocket, for the test to play the client. Closing it
+// ends the handler's `receive`; the handler returning ends the test's.
+pub fn socketOf(s: Scope, res: Response) -> WebSocket {
+  // The compiler gives this its body (`stdBody`).
+  return WebSocket {
+    send: (text) => res.stream == none,
+    sendBytes: (data) => false,
+    receive: () => none,
+    receiveMessage: () => none,
+    close: () => {},
+  }
+}
+
+// The events a response from `http.events` sends: for tests of a handler.
+pub fn eventsOf(res: Response) -> List<Event> {
+  let mut out: List<Event> = []
+  for block in bodyOf(res).replaceAll("\r\n", "\n").split("\n\n") {
+    match parseBlock(block) {
+      none => {},
+      e => out.push(e),
+    }
+  }
+  return out
+}
+
+// Reads the event stream at `url` (server-sent events), as `fold` does: `each` combines what it
+// has so far with the next event. It ends when the stream does. A broken connection is resumed,
+// with `last-event-id` if an event had one, up to three times before it is an `Err`. To stop
+// sooner, end the task: `tasks.timeout(ms, () => http.listen(...))`.
+//
+//   let ticks = http.listen("http://127.0.0.1:8080/ticks", 0, (n, e) => n + 1)?
+pub fn listen<A>(url: string, start: A, each: fn(A, Event) -> A) -> Result<A, HttpError> uses http, each {
+  let mut acc = start
+  let mut lastId: string? = none
+  let mut breaks = 0
+  while breaks <= 3 {
+    let mut headers: Map<string, string> = ["accept": "text/event-stream"]
+    match lastId {
+      none => {},
+      id => headers["last-event-id"] = id,
+    }
+    let res = http.openStream(ClientRequest { ...request("GET", url), headers })?
+    if res.status != 200 {
+      return Err(HttpError.Failed { message: "${url} answered ${res.status}, not an event stream" })
+    }
+    match readResponse(res, (acc, "", lastId), (s, piece) => step(s, piece, each)) {
+      Ok(s) => return Ok(s.0),
+      Err(broken) => {
+        acc = broken.sofar.0
+        lastId = broken.sofar.2
+        breaks += 1
+        if breaks > 3 {
+          return Err(HttpError.Failed { message: broken.message })
+        }
+      },
+    }
+  }
+  return Ok(acc)
+}
+
+// `listen`'s fold over the body: what `each` made so far, the text after the last whole event,
+// and the last event id.
+fn step<A>(s: (A, string, string?), piece: string, each: fn(A, Event) -> A) -> (A, string, string?) uses each {
+  let (start, rest, lastId) = s
+  let blocks = "${rest}${piece}".replaceAll("\r\n", "\n").split("\n\n")
+  let mut acc = start
+  let mut id = lastId
+  for (i, block) in blocks.enumerated() {
+    if i == blocks.length() - 1 {
+      return (acc, block, id)
+    }
+    match parseBlock(block) {
+      none => {},
+      e => {
+        if e.id != none {
+          id = e.id
+        }
+        acc = each(acc, e)
+      },
+    }
+  }
+  return (acc, "", id)
+}
+
+// An event as it goes over the wire.
+fn eventText(e: Event) -> string {
+  let kind = match e.event {
+    none => "",
+    name => "event: ${name}\n",
+  }
+  let id = match e.id {
+    none => "",
+    v => "id: ${v}\n",
+  }
+  let data = e.data.split("\n").map((line) => "data: ${line}\n").join("")
+  return "${kind}${id}${data}\n"
+}
+
+// One event's lines, or none for a block without data (a comment, a keep-alive).
+fn parseBlock(block: string) -> Event? {
+  let mut data: List<string> = []
+  let mut event: string? = none
+  let mut id: string? = none
+  for line in block.split("\n") {
+    if line.isEmpty() || line.startsWith(":") {
+      continue
+    }
+    let (field, value) = splitField(line)
+    if field == "data" {
+      data.push(value)
+    } else if field == "event" {
+      event = value
+    } else if field == "id" {
+      id = value
+    }
+  }
+  if data.isEmpty() {
+    return none
+  }
+  return Event { data: data.join("\n"), event, id }
+}
+
+// `data: x` as ("data", "x"): one space after the colon is dropped.
+fn splitField(line: string) -> (string, string) {
+  return match line.indexOf(":") {
+    none => (line, ""),
+    i => {
+      let value = line.slice(i + 1)
+      (line.slice(0, i), if value.startsWith(" ") { value.slice(1) } else { value })
+    },
+  }
+}
+
+// The path's parameters if `req` matches `pattern`, else none. A pattern is a method and a path,
+// or a path alone for any method: `"GET /todos/{id}"` matches `GET /todos/3` with `["id": "3"]`.
+// `{name}` matches one part of the path, which can't be empty.
+pub fn route(req: Request, pattern: string) -> Map<string, string>? {
+  let parts = pattern.split(" ")
+  let path = if parts.length() == 2 {
+    if (parts[0] ?? "") != req.method {
+      return none
+    }
+    parts[1] ?? ""
+  } else {
+    pattern
+  }
+  let want = path.split("/")
+  let got = req.path.split("/")
+  if want.length() != got.length() {
+    return none
+  }
+  let mut params: Map<string, string> = [:]
+  for (i, w) in want.enumerated() {
+    let g = got[i] ?? ""
+    if w.startsWith("{") && w.endsWith("}") {
+      if g.isEmpty() {
+        return none
+      }
+      params[w.slice(1, w.length() - 1)] = g
+    } else if w != g {
+      return none
+    }
+  }
+  return params
+}
+
+// A response with `value` as its JSON body.
+pub fn jsonResponse<T: Json>(status: int, value: T) -> Response {
+  return Response { status, headers: ["content-type": "application/json"], body: json.encode(value) }
+}
+
+// A response with a plain text body.
+pub fn textResponse(status: int, body: string) -> Response {
+  return Response { status, headers: ["content-type": "text/plain; charset=utf-8"], body }
+}
+
+// A response with `data` as its body, its content type `contentType`:
+// `http.bytesResponse(200, "image/png", png)`.
+pub fn bytesResponse(status: int, contentType: string, data: Bytes) -> Response {
+  return Response { status, headers: ["content-type": contentType], body: rawText(data) }
+}
+
+// The file at `path` as a response, its content type from its extension (`http.mimeType`):
+// 404 if there is no file there (a directory isn't one), 403 if the system says no, 500 for
+// anything else, each with an empty body. `serve` sends it from disk a piece at a time, and answers a `Range` request with
+// the part asked for (206, or 416 past the end), so `<audio>` and `<video>` can seek,
+// `If-Modified-Since` (and `If-None-Match`, if the handler set an `etag`) with 304, and `HEAD`
+// with the headers alone; every answer has `last-modified` and `accept-ranges`.
+//
+// In a test the files are in memory and the whole file is the body; `http.served(req, res)`
+// gives what `serve` would send instead, ranges and all. `last-modified` is the test's time at
+// the write; a server sends none for a file dated 1970, the test clock's start, so
+// `clock.set(...)` to a real date before writing a file whose 304 a test checks.
+pub fn serveFile(path: string) -> Response uses fs {
+  return match fs.info(path) {
+    Ok(info) => if info.isDir {
+      emptyResponse(404)
+    } else {
+      match fileStream(path) {
+        none => match fs.readBytes(path) {
+          Ok(data) => Response { ...bytesResponse(200, mimeType(path), data), stream: memoryFile(data, info.modified) },
+          Err(e) => failedFile(e),
+        },
+        id => Response { status: 200, headers: ["content-type": mimeType(path)], body: "", stream: id },
+      }
+    },
+    Err(e) => failedFile(e),
+  }
+}
+
+// The file at `path` as a stream the runtime keeps, which `serve` sends with ranges; none in a
+// test, whose files are in memory. The compiler gives it its body (`stdBody`).
+fn fileStream(path: string) -> int? uses fs {
+  return none
+}
+
+// In a test: the file `data`, written at `modified`, as a stream the runtime keeps, which
+// `http.served` sends as `serve` does. The compiler gives it its body (`stdBody`).
+fn memoryFile(data: Bytes, modified: int) -> int? {
+  return none
+}
+
+// What `serve` sends for `res`, the handler's answer to `req`: for tests of a handler that
+// serves files. A response from `http.serveFile` is answered by the same Go code `serve` uses
+// (206 and `content-range` for a `range` header, 416, 304, `HEAD`'s headers alone); anything
+// else is `res`, without its body for `HEAD`.
+//
+//   let req = http.withHeader(get("/a.wav"), "range", ["bytes=0-9"])
+//   let res = http.served(req, handle(req))
+//   assert res.status == 206 && res.headers["content-range"] == "bytes 0-9/100"
+pub fn served(req: Request, res: Response) -> Response {
+  // The compiler gives this its body (`stdBody`).
+  return res
+}
+
+// A file under `root`, by `rest`, a path from the request: `fs.within` keeps it inside `root`
+// (404 if it climbs out), and a directory gives its `index.html`.
+//
+//   if req.path.startsWith("/static/") {
+//     return http.serveDir("public", req.path.slice(8))
+//   }
+//
+// `req.path` is decoded, so `%2e%2e/` arrives as `../`, which `within` refuses.
+pub fn serveDir(root: string, rest: string) -> Response uses fs {
+  return match fs.within(root, rest) {
+    none => emptyResponse(404),
+    file => match fs.info(file) {
+      Ok(info) => serveFile(if info.isDir { "${file}/index.html" } else { file }),
+      Err(e) => failedFile(e),
+    },
+  }
+}
+
+fn failedFile(e: fs.FsError) -> Response {
+  return match e {
+    .NotFound { path } => emptyResponse(404),
+    .Denied { path } => emptyResponse(403),
+    .Failed { path, message } => emptyResponse(500),
+  }
+}
+
+// The content type for a file, by its extension, ignoring case: `"text/html; charset=utf-8"`
+// for `index.html`, `"image/png"` for `logo.PNG`, `"application/octet-stream"` for one it
+// doesn't know. The same on every system (the operating system's table isn't asked).
+pub fn mimeType(path: string) -> string {
+  let name = path.replaceAll("\\", "/").split("/").last() ?? ""
+  let parts = name.split(".")
+  if parts.length() < 2 {
+    return "application/octet-stream"
+  }
+  let types: Map<string, string> = [
+    "html": "text/html; charset=utf-8",
+    "htm": "text/html; charset=utf-8",
+    "css": "text/css; charset=utf-8",
+    "js": "text/javascript; charset=utf-8",
+    "mjs": "text/javascript; charset=utf-8",
+    "json": "application/json",
+    "map": "application/json",
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/markdown; charset=utf-8",
+    "csv": "text/csv; charset=utf-8",
+    "xml": "application/xml",
+    "svg": "image/svg+xml",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "avif": "image/avif",
+    "ico": "image/x-icon",
+    "woff": "font/woff",
+    "woff2": "font/woff2",
+    "ttf": "font/ttf",
+    "otf": "font/otf",
+    "wasm": "application/wasm",
+    "pdf": "application/pdf",
+    "zip": "application/zip",
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+  ]
+  return types[(parts.last() ?? "").toLowerCase()] ?? "application/octet-stream"
+}
+
+// A response with no body: `http.emptyResponse(204)`.
+pub fn emptyResponse(status: int) -> Response {
+  return Response { status, headers: [:], body: "" }
+}
+
+// Every value of the query key `name`, in order: `?tag=a&tag=b` gives `["a", "b"]`, where
+// `req.query["tag"]` is `"a"`. `[]` if it isn't there.
+pub fn queryAll(req: Request, name: string) -> List<string> {
+  return valuesOf(req.queryAll, req.query, name)
+}
+
+// Every value of the header `name` (any case), in order.
+pub fn headerAll(req: Request, name: string) -> List<string> {
+  return valuesOf(req.headersAll, req.headers, name.toLowerCase())
+}
+
+// `req` with the query key `name` given `values`, in order: for tests of `http.queryAll`.
+pub fn withQuery(req: Request, name: string, values: List<string>) -> Request {
+  let (query, all) = givenAll(req.query, req.queryAll, name, values)
+  return Request { ...req, query, queryAll: all }
+}
+
+// `req` with the header `name` given `values`, in order: for tests of `http.headerAll`.
+pub fn withHeader(req: Request, name: string, values: List<string>) -> Request {
+  let (headers, all) = givenAll(req.headers, req.headersAll, name.toLowerCase(), values)
+  return Request { ...req, headers, headersAll: all }
+}
+
+// `res` sending one more `name` header, after any it has: two cookies are
+//
+//   http.addHeader(http.addHeader(res, "set-cookie", "a=1"), "set-cookie", "b=2")
+pub fn addHeader(res: Response, name: string, value: string) -> Response {
+  let key = name.toLowerCase()
+  if !res.headers.has(key) {
+    let mut headers = res.headers
+    headers[key] = value
+    return Response { ...res, headers }
+  }
+  let mut more = res.more ?? [:]
+  more[key] = (more[key] ?? []).concat([value])
+  return Response { ...res, more }
+}
+
+// Every value of the header `name` that `res` sends, in order: for tests of `http.addHeader`.
+pub fn responseHeaderAll(res: Response, name: string) -> List<string> {
+  let key = name.toLowerCase()
+  let more: List<string> = match res.more {
+    none => [],
+    m => m[key] ?? [],
+  }
+  return match res.headers[key] {
+    none => more,
+    first => [first].concat(more),
+  }
+}
+
+fn valuesOf(all: Map<string, List<string>>?, firsts: Map<string, string>, name: string) -> List<string> {
+  match all {
+    none => {},
+    m => match m[name] {
+      none => {},
+      values => return values,
+    },
+  }
+  return match firsts[name] {
+    none => [],
+    first => [first],
+  }
+}
+
+fn givenAll(firsts: Map<string, string>, all: Map<string, List<string>>?, name: string, values: List<string>) -> (Map<string, string>, Map<string, List<string>>) {
+  let mut ones = firsts
+  match values[0] {
+    none => {
+      ones.remove(name)
+    },
+    first => ones[name] = first,
+  }
+  let mut every = all ?? [:]
+  every[name] = values
+  return (ones, every)
+}

@@ -1,0 +1,26 @@
+module fanin
+
+test "whichever sensor is ready, and quiet spells between" {
+  assert listen(25) == ["quiet", "temp 0", "wind 0", "temp 1", "quiet", "temp 2", "temp closed", "wind 1", "wind closed"]
+  assert clock.now() == 100
+}
+
+test "an offer is taken only by someone already waiting" {
+  assert offers() == (false, true)
+}
+
+test "nothing to take: the timeout arm" {
+  assert idle(50) == "nothing in 50 ms"
+  assert clock.now() == 50
+}
+
+test "a tie goes either way, by the seed" {
+  let winner = tasks.scope((s) => {
+    let a: Channel<string> = s.channel(1)
+    let b: Channel<string> = s.channel(1)
+    a.send("a")
+    b.send("b")
+    return tasks.select([a.onRecv((x) => x ?? "closed"), b.onRecv((x) => x ?? "closed")])
+  })
+  assert winner == "a" || winner == "b"
+}

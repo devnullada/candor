@@ -1,0 +1,46 @@
+module infra
+
+import "net"
+
+// Checks a domain's mail setup and its web port: `candor run examples/infra.candor -- example.com`.
+// It talks to real DNS and connects for real; its tests set what the fake answers.
+
+struct Check {
+  name: string
+  ok: bool
+  detail: string
+}
+
+fn mail(domain: string) -> List<Check> uses net {
+  let mx = match net.lookupMx(domain) {
+    Ok(servers) => Check { name: "mx", ok: servers.length() > 0, detail: servers.map((m) => "${m.priority} ${m.host}").join(", ") },
+    Err(e) => Check { name: "mx", ok: false, detail: e.toString() },
+  }
+  let spf = match net.lookupTxt(domain) {
+    Ok(txt) => {
+      let spf = txt.filter((t) => t.startsWith("v=spf1"))
+      match spf.length() {
+        0 => Check { name: "spf", ok: false, detail: "no v=spf1 record" },
+        1 => Check { name: "spf", ok: true, detail: spf[0] ?? "" },
+        _ => Check { name: "spf", ok: false, detail: "more than one v=spf1 record" },
+      }
+    },
+    Err(e) => Check { name: "spf", ok: false, detail: e.toString() },
+  }
+  return [mx, spf]
+}
+
+fn web(domain: string) -> Check uses net {
+  return match net.reachable(domain, 443, 3_000) {
+    Ok(ms) => Check { name: "https", ok: true, detail: "${ms} ms" },
+    Err(e) => Check { name: "https", ok: false, detail: e.toString() },
+  }
+}
+
+fn main() -> Result<void, string> uses io, env, net {
+  let domain = env.args()[0] ?? "example.com"
+  for c in mail(domain).concat([web(domain)]) {
+    io.println("${if c.ok { "ok  " } else { "FAIL" }} ${c.name}: ${c.detail}")
+  }
+  return Ok()
+}

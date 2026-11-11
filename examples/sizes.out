@@ -1,0 +1,5 @@
+42 MB is 42,000,000 bytes, or 42 MB
+1.5 GiB is 1,610,612,736 bytes, or 1.6 GB
+lots: strconv.ParseFloat: parsing "": invalid syntax
+a kilobyte is 1000 bytes
+the 3rd try

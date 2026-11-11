@@ -1,0 +1,19 @@
+module settings
+
+test "a setting" {
+  assert parseSetting(" port = 80 ") == Ok(Setting { name: "port", value: 80 })
+}
+
+test "Go's errors come through" {
+  let r = strconv.atoi("x")
+  let isSyntax = match r {
+    Ok(_) => false,
+    Err(e) => e.is(strconv.errSyntax) && !e.is(strconv.errRange),
+  }
+  assert isSyntax
+  let yes = match strconv.parseBool("true") {
+    Ok(b) => b,
+    Err(_) => false,
+  }
+  assert yes
+}

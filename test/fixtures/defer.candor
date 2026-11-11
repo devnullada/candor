@@ -1,0 +1,104 @@
+module cleanup
+
+fn find(ok: bool) -> Result<int, string> {
+  if ok {
+    return Ok(1)
+  }
+  return Err("no")
+}
+
+fn early(ok: bool) -> Result<int, string> uses io {
+  defer {
+    io.println("early: first")
+  }
+  defer {
+    io.println("early: second")
+  }
+  let n = find(ok)?
+  io.println("early: got ${n}")
+  return Ok(n)
+}
+
+fn spin(m: Mutex<int>, ch: Channel<int>) -> int uses io {
+  defer {
+    let mut i = 0
+    while i < 3 {
+      i += 1
+    }
+    let steps = i
+    m.update((x) => x + steps)
+    io.println("spin: cleaned up ${i}")
+  }
+  let mut n = 0
+  for x in ch {
+    n += x
+  }
+  return n
+}
+
+fn cancelled() -> int uses io, tasks {
+  return tasks.scope((s) => {
+    let m = s.mutex(0)
+    let ch: Channel<int> = s.channel(0)
+    let r = tasks.timeout(20, () => spin(m, ch))
+    if r != none {
+      return -1
+    }
+    return m.get()
+  })
+}
+
+fn divide(a: int, b: int) -> int uses io {
+  defer {
+    io.println("divide: cleaned up")
+  }
+  return a / b
+}
+
+effect cleanup {
+  let mut open = 0
+  let mut closed = 0
+
+  pub fn visit() -> int {
+    open += 1
+    defer {
+      closed += 1
+    }
+    return open
+  }
+
+  pub fn done() -> int {
+    return closed
+  }
+}
+
+fake cleanup {
+  let mut open = 0
+  let mut closed = 0
+
+  fn visit() -> int {
+    open += 1
+    defer {
+      closed += 1
+    }
+    return open
+  }
+
+  fn done() -> int {
+    return closed
+  }
+}
+
+fn main() uses io, tasks, cleanup {
+  for ok in [true, false] {
+    match early(ok) {
+      Ok(n) => io.println("ok ${n}"),
+      Err(e) => io.println("err ${e}"),
+    }
+  }
+  io.println("cancelled: ${cancelled()}")
+  cleanup.visit()
+  cleanup.visit()
+  io.println("visits: ${cleanup.done()}")
+  io.println("${divide(1, 0)}")
+}

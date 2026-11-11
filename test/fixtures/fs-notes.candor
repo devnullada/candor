@@ -1,0 +1,39 @@
+module notes
+
+import "fs"
+
+fn save(dir: string, name: string, text: string) -> Result<void, fs.FsError> uses fs {
+  fs.makeDir(dir)?
+  fs.write("${dir}/${name}", text)?
+  return fs.append("${dir}/${name}", "\nend\n")
+}
+
+fn report(dir: string) -> Result<string, fs.FsError> uses fs {
+  let names = fs.list(dir)?
+  let mut out: List<string> = []
+  for name in names {
+    let n = fs.readLines("${dir}/${name}", 0, (count, line) => count + 1)?
+    out.push("${name}: ${n} lines")
+  }
+  return Ok(out.join(", "))
+}
+
+fn main() -> Result<void, fs.FsError> uses io, fs {
+  save("out/notes", "b.txt", "two\r\nlines")?
+  save("out/notes", "a.txt", "one")?
+  io.println(report("out/notes")?)
+  io.println(fs.read("out/notes/a.txt")?)
+  fs.remove("out/notes/a.txt")?
+  io.println("${fs.exists("out/notes/a.txt")} ${fs.exists("out/notes")}")
+  match fs.read("out/missing.txt") {
+    Ok(_) => io.println("?"),
+    Err(e) => io.println("${e}"),
+  }
+  match fs.remove("out/notes") {
+    Ok(_) => io.println("?"),
+    Err(e) => io.println("${e}"),
+  }
+  fs.remove("out/notes/b.txt")?
+  fs.remove("out/notes")?
+  return Ok()
+}

@@ -1,0 +1,5 @@
+words seen more than once: a 2, blue 2, cat 3, mat 2, the 4
+pages fetched: 4
+the contact page, fetched alongside: write to the cat
+4 pages by 2 workers took under 300 ms: true
+tickets: 1 2 3 4 5

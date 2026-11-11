@@ -1,0 +1,74 @@
+module http
+
+// Fetching web pages. Code that fetches says `uses http`; tests get the fake below, a web
+// served from memory.
+
+pub enum HttpError {
+  // The server answered with a status other than 2xx.
+  Status { code: int }
+  // No answer: a bad URL, no connection, a cancelled request.
+  Failed { message: string }
+}
+
+effect http {
+  extern "./native" {
+    fn Get(ctx, url: string) -> Result<string, GoError> as goGet
+    fn StatusOf(err: GoError) -> int as statusOf
+  }
+
+  // The body of the page at `url`.
+  pub fn get(url: string) -> Result<string, HttpError> {
+    match goGet(url) {
+      Ok(body) => return Ok(body),
+      Err(e) => {
+        let code = statusOf(e)
+        if code != 0 {
+          return Err(HttpError.Status { code })
+        }
+        return Err(HttpError.Failed { message: e.message() })
+      }
+    }
+  }
+}
+
+struct Page {
+  url: string
+  status: int
+  body: string
+}
+
+fake http {
+  let mut pages: List<Page> = []
+  let mut requests: List<string> = []
+
+  fn get(url: string) -> Result<string, HttpError> {
+    requests.push(url)
+    for p in pages {
+      if p.url == url {
+        if p.status / 100 != 2 {
+          return Err(HttpError.Status { code: p.status })
+        }
+        return Ok(p.body)
+      }
+    }
+    return Err(HttpError.Failed { message: "no such host: ${url}" })
+  }
+
+  // Answers `url` with `status` and `body` from now on.
+  fn serve(url: string, status: int, body: string) {
+    pages.push(Page { url, status, body })
+  }
+
+  // Every URL fetched so far, in the order the requests came.
+  fn requested() -> List<string> {
+    return requests
+  }
+}
+
+// What went wrong, in words.
+pub fn describe(e: HttpError) -> string {
+  return match e {
+    HttpError.Status { code } => "status ${code}",
+    HttpError.Failed { message } => message,
+  }
+}

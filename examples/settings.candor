@@ -1,0 +1,38 @@
+module settings
+
+import "bindings/strconv"
+import "bindings/strings"
+
+struct Setting {
+  name: string
+  value: int
+}
+
+// "name = value", with an int value.
+fn parseSetting(line: string) -> Result<Setting, string> {
+  let parts = line.split("=")
+  if parts.length() != 2 {
+    return Err("expected name=value, found ${strconv.quote(line)}")
+  }
+  let name = (parts[0] ?? "").trim()
+  match strconv.atoi((parts[1] ?? "").trim()) {
+    Ok(value) => return Ok(Setting { name, value }),
+    Err(e) => {
+      if e.is(strconv.errRange) {
+        return Err("${name}: too large for an int")
+      }
+      return Err(e.message())
+    }
+  }
+}
+
+fn main() uses io {
+  let lines = ["max connections = 255", "workers=4", "timeout=soon", "limit=99999999999999999999", "verbose"]
+  for line in lines {
+    match parseSetting(line) {
+      Ok(s) => io.println("${strings.title(s.name)}: ${s.value} (0x${strconv.formatInt(s.value, 16)})"),
+      Err(message) => io.println("skipped: ${message}"),
+    }
+  }
+  io.println(strings.words("  bindings   are   functions  ").join("|"))
+}

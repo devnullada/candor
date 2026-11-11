@@ -1,0 +1,252 @@
+// The reference for trial app `bookings`: hidden from agents, it checks the spec and the
+// acceptance tests. Started from trial 040's service.
+
+module bookings
+
+import "http"
+import "json"
+import "sql"
+
+// Room bookings served as JSON over HTTP, kept in SQLite.
+//
+//   POST   /rooms                {"name": "..."}: 201 and the room
+//   GET    /rooms                every room, oldest first
+//   POST   /bookings             {"room": id, "start": h, "end": h}: 201 and the booking;
+//                                409 if it overlaps a booking of the same room
+//   GET    /rooms/{id}/bookings  the room's bookings by start, or 404
+//   DELETE /bookings/{id}        204, or 404
+//
+// Hours are ints and a booking is the half-open range [start, end), so 9-11 and 11-13 don't
+// overlap.
+
+struct Room {
+  id: int
+  name: string
+}
+impl Json for Room
+impl Row for Room
+
+struct Booking {
+  id: int
+  room: int
+  start: int
+  end: int
+}
+impl Json for Booking
+impl Row for Booking
+
+struct NewRoom {
+  name: string
+}
+impl Json for NewRoom
+
+struct NewBooking {
+  room: int
+  start: int
+  end: int
+}
+impl Json for NewBooking
+
+struct Problem {
+  error: string
+}
+impl Json for Problem
+
+// The store.
+
+fn migrate() -> Result<void, sql.Error> uses sql {
+  sql.exec("CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")?
+  sql.exec("""
+    CREATE TABLE IF NOT EXISTS bookings (
+      id INTEGER PRIMARY KEY,
+      room INTEGER NOT NULL REFERENCES rooms(id),
+      start INTEGER NOT NULL,
+      "end" INTEGER NOT NULL
+    )
+    """)?
+  return Ok()
+}
+
+fn rooms() -> Result<List<Room>, sql.Error> uses sql {
+  return sql.query<Room>("SELECT id, name FROM rooms ORDER BY id")
+}
+
+fn addRoom(name: string) -> Result<Room, sql.Error> uses sql {
+  let id = sql.insert("INSERT INTO rooms (name) VALUES (${name})")?
+  return Ok(Room { id, name })
+}
+
+fn roomExists(id: int) -> Result<bool, sql.Error> uses sql {
+  return Ok((sql.query<int>("SELECT count(*) FROM rooms WHERE id = ${id}")?.first() ?? 0) > 0)
+}
+
+fn bookingsOf(room: int) -> Result<List<Booking>, sql.Error> uses sql {
+  return sql.query<Booking>("""SELECT id, room, start, "end" FROM bookings WHERE room = ${room} ORDER BY start""")
+}
+
+// Books the room unless it is taken: the overlap check and the insert are one transaction, so
+// two requests can't both pass the check.
+fn book(b: NewBooking) -> Result<Booking, http.Response> uses sql {
+  return sql.transaction(() => {
+    if !stored(roomExists(b.room))? {
+      return Err(problem(404, "no room ${b.room}"))
+    }
+    let clashes = stored(sql.query<Booking>("""SELECT id, room, start, "end" FROM bookings WHERE room = ${b.room} AND start < ${b.end} AND "end" > ${b.start} ORDER BY start"""))?
+    let clash = clashes.first()
+    if clash != none {
+      return Err(problem(409, "room ${b.room} is booked from ${clash.start} to ${clash.end} (booking ${clash.id})"))
+    }
+    let id = stored(sql.insert("""INSERT INTO bookings (room, start, "end") VALUES (${b.room}, ${b.start}, ${b.end})"""))?
+    return Ok(Booking { id, room: b.room, start: b.start, end: b.end })
+  }, (e) => dbFailed(e))
+}
+
+fn removeBooking(id: int) -> Result<bool, sql.Error> uses sql {
+  return Ok(sql.exec("DELETE FROM bookings WHERE id = ${id}")? > 0)
+}
+
+// The service.
+
+fn handle(req: http.Request) -> http.Response uses sql {
+  return match route(req) {
+    Ok(res) => res,
+    Err(res) => res,
+  }
+}
+
+fn route(req: http.Request) -> Result<http.Response, http.Response> uses sql {
+  if http.route(req, "/rooms") != none {
+    return match req.method {
+      "GET" => Ok(http.jsonResponse(200, stored(rooms())?)),
+      "POST" => {
+        let name = readBody<NewRoom>(req.body)?.name.trim()
+        if name.isEmpty() {
+          return Err(problem(400, "`name` must not be blank"))
+        }
+        Ok(http.jsonResponse(201, stored(addRoom(name))?))
+      },
+      _ => Err(problem(405, "/rooms takes GET and POST")),
+    }
+  }
+  if http.route(req, "/bookings") != none {
+    if req.method != "POST" {
+      return Err(problem(405, "/bookings takes POST"))
+    }
+    let b = checkBooking(readBody<NewBooking>(req.body)?)?
+    return Ok(http.jsonResponse(201, book(b)?))
+  }
+  let ofRoom = http.route(req, "/rooms/{id}/bookings")
+  if ofRoom != none {
+    if req.method != "GET" {
+      return Err(problem(405, "/rooms/{id}/bookings takes GET"))
+    }
+    let room = idIn(ofRoom, "room")?
+    if !stored(roomExists(room))? {
+      return Err(problem(404, "no room ${room}"))
+    }
+    return Ok(http.jsonResponse(200, stored(bookingsOf(room))?))
+  }
+  let one = http.route(req, "/bookings/{id}")
+  if one != none {
+    if req.method != "DELETE" {
+      return Err(problem(405, "/bookings/{id} takes DELETE"))
+    }
+    let id = idIn(one, "booking")?
+    if !stored(removeBooking(id))? {
+      return Err(problem(404, "no booking ${id}"))
+    }
+    return Ok(http.emptyResponse(204))
+  }
+  return Err(problem(404, "no route ${req.method} ${req.path}"))
+}
+
+// The `{id}` of a matched path. An id that isn't an int names nothing: 404.
+fn idIn(params: Map<string, string>, what: string) -> Result<int, http.Response> {
+  let given = params["id"] ?? ""
+  return match given.toInt() {
+    none => Err(problem(404, "no ${what} `${given}`: ids are ints")),
+    n => Ok(n),
+  }
+}
+
+fn checkBooking(b: NewBooking) -> Result<NewBooking, http.Response> {
+  if b.start < 0 || b.end > 24 {
+    return Err(problem(400, "hours run from 0 to 24, got ${b.start} to ${b.end}"))
+  }
+  if b.start >= b.end {
+    return Err(problem(400, "`start` must be before `end`, got ${b.start} to ${b.end}"))
+  }
+  return Ok(b)
+}
+
+fn readBody<T: Json>(text: string) -> Result<T, http.Response> {
+  return match json.decode<T>(text) {
+    Ok(v) => Ok(v),
+    Err(e) => Err(problem(400, "bad body: ${e}")),
+  }
+}
+
+fn stored<T>(r: Result<T, sql.Error>) -> Result<T, http.Response> {
+  return r.mapErr((e) => dbFailed(e))
+}
+
+fn dbFailed(e: sql.Error) -> http.Response {
+  return problem(500, "the database failed: ${e}")
+}
+
+fn problem(status: int, message: string) -> http.Response {
+  return http.jsonResponse(status, Problem { error: message })
+}
+
+fn main() uses io, env, sql, http, tasks {
+  let port = env.get("PORT")
+  let path = env.get("DB") ?? ":memory:"
+  match open(path) {
+    Ok() => {},
+    Err(e) => {
+      io.println("can't open ${path}: ${e}")
+      return
+    },
+  }
+  if port == none {
+    let requests = [
+      request("POST", "/rooms", """{"name": "Fjord"}"""),
+      request("POST", "/rooms", """{"name": "Glacier"}"""),
+      request("POST", "/bookings", """{"room": 1, "start": 9, "end": 11}"""),
+      request("POST", "/bookings", """{"room": 1, "start": 10, "end": 12}"""),
+      request("POST", "/bookings", """{"room": 1, "start": 7, "end": 9}"""),
+      request("POST", "/bookings", """{"room": 2, "start": 10, "end": 12}"""),
+      request("GET", "/rooms/1/bookings", ""),
+      request("DELETE", "/bookings/1", ""),
+      request("DELETE", "/bookings/1", ""),
+      request("POST", "/bookings", """{"room": 1, "start": 12, "end": 12}"""),
+      request("GET", "/rooms", ""),
+    ]
+    for req in requests {
+      let res = handle(req)
+      let body = if res.body.isEmpty() { "" } else { " ${res.body}" }
+      io.println("${req.method} ${req.path} -> ${res.status}${body}")
+    }
+    return
+  }
+  io.println("serving on 127.0.0.1:${port}")
+  match http.serve("127.0.0.1:${port}", handle) {
+    Ok() => {},
+    Err(message) => io.println("can't serve: ${message}"),
+  }
+}
+
+fn open(path: string) -> Result<void, sql.Error> uses sql {
+  sql.open(path)?
+  return migrate()
+}
+
+fn request(method: string, path: string, body: string) -> http.Request {
+  return http.Request { method, path, query: [:], headers: [:], body }
+}
+
+fn send(method: string, path: string, body: string) -> http.Response uses sql {
+  return handle(request(method, path, body))
+}
+
+// Tests.

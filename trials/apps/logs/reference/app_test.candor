@@ -1,0 +1,25 @@
+module logs
+
+test "a report" {
+  io.setInput("2026-10-25T10:00:01Z GET /items/3 200 12ms\nnope\n\n2026-10-25T10:00:02Z POST /orders 500 30ms\n")
+  let r = main()
+  assert r == Ok()
+  assert io.output() == "requests: 2\nmalformed: 1\nstatus: 2xx 1, 5xx 1\nerrors: 50.0%\nlatency: p50 12ms, p95 30ms, max 30ms\ntop paths:\n  1  avg 12ms  /items/{id}\n  1  avg 30ms  /orders\n"
+  assert io.errorOutput() == "warning: line 2: malformed\n"
+}
+
+test "usage errors" {
+  for args in [["--top", "0"], ["--by"], ["--by", "path", "--by", "path"], ["x"], ["--status", "6xx"], ["--since", "now"]] {
+    env.setArgs(args)
+    assert main() != Ok()
+  }
+  assert io.output() == ""
+}
+
+test "options" {
+  assert parseOptions(["--top", "3", "--status", "404"]) == Ok(Options { status: "404", since: none, by: "path", top: 3 })
+  assert isTimestamp("2026-10-25T10:00:01Z") && !isTimestamp("2026-10-25T10:00:01")
+  assert normalPath("/a/12/b/3x/") == "/a/{id}/b/3x/"
+  assert rounded(3, 2) == 2 && rounded(4, 3) == 1
+  assert percentile([1, 2, 3, 4], 50) == 2
+}

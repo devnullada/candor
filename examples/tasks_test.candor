@@ -1,0 +1,43 @@
+module tasks
+
+test "lookups run at the same time" {
+  assert tasks.all([1, 2, 3], (id) => fetchScore(id, 200)) == Ok([10, 20, 30])
+  assert clock.now() == 200
+  assert profile(7) == Ok("user7 scores 70")
+  assert clock.now() == 400
+}
+
+test "the first failure cancels the rest" {
+  let r = tasks.scope((s) => {
+    let a = s.spawn(() => slowPrint(1000, "slow finished"))
+    let b = s.spawn(() => failAfter(30))
+    return Ok(a.join()? + b.join()?)
+  })
+  assert r == Err("gave up after 30")
+  assert io.output() == ""
+  assert clock.now() == 30
+}
+
+test "a failing profile stops at the failure" {
+  assert profile(-1) == Err("no user -1")
+  assert clock.now() == 200
+}
+
+test "race and timeout" {
+  assert tasks.race([() => failAfter(10), () => fetchScore(2, 50), () => fetchScore(1, 300)]) == Ok(20)
+  assert clock.now() == 50
+  assert tasks.timeout(100, () => fetchScore(3, 10_000)) == none
+  assert clock.now() == 150
+  assert tasks.timeout(100, () => fetchScore(3, 10)) == Ok(30)
+}
+
+test "tasks that return nothing" {
+  let finished = tasks.timeout(500, () => {
+    tasks.all([3, 1, 2], (n) => {
+      clock.sleep(n * 100)
+      io.println(n.toString())
+    })
+  })
+  assert finished
+  assert io.output() == "1\n2\n3\n"
+}
